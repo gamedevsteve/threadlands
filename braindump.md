@@ -1,0 +1,5 @@
+I want to build an app that is an interface of claude agent terminals.  My current problem is that i have too many of them and they run together, and some things are bigger projects and some are just temporary. the bigger projects i tend to keep the claude running in terminals longer to hold it's place.
+
+What i want is build a civilization V like interface that would let me spin up a claude in a terminal and chat directly through the interface.  Each process would be a camp or a city. A city would be a bigger project that we can work through and it holds histories longer and stuff. I'd talk to the governor of the city.  It would be a hex grid with a cottage that represents me at the middle. then i could spin up a camp or a city and place it on the grid.  i could chat and it could get to work...when it needs input a little flag goes up that i can click into and read and answer.  i'd also be able to open a terminal at that claude's folder location to run manual commands if needed.
+
+How possible do you think this would be to build as an app and be a hub of my terminals to help me multitask?  It would be a mac app i guess.
