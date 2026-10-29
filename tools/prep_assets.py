@@ -21,10 +21,12 @@ SRC = ROOT / "assets"
 OUT = ROOT / "src" / "assets"
 
 # (source stem, output name, target width)
+# (source stem, output name, target width). Swapping a sprite is a one-line
+# change here; the alternates sit in assets/ unprepped until they are chosen.
 JOBS = [
-    ("camp", "camp", 512),
-    ("city", "city", 512),
-    ("main cottage", "cottage", 512),
+    ("camp-1", "camp", 512),
+    ("city-castle-1", "city", 512),
+    ("cottage", "cottage", 512),
 ]
 
 # How close to the corner colour still counts as background.
@@ -386,7 +388,7 @@ def prepare_icon(size: int = 1024) -> None:
 
 # UI buttons. Each arrives as framed art on an opaque black square, so each is
 # cropped to its content and cut to the same squircle as the app icon.
-UI_ICONS = ["info", "home"]
+UI_ICONS = ["info", "home", "blank", "build"]
 
 
 def prepare_ui_icons(size: int = 128) -> None:

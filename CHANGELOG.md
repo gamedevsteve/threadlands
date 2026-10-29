@@ -35,6 +35,9 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Changed
 
+- New art for the cottage, the camp and the city. Camps and cities now sit
+  directly on the ground rather than each on its own disc.
+
 - The avatar stands at a fixed spot beside the cottage, in the same world units
   as the building, behind the name plate rather than in front, and its shadow is
   sized from the figure itself.
