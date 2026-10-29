@@ -748,6 +748,13 @@ queued on the GPU and wall-clock around the JS reports near zero.
   painted and wipe it. Two independent `requestAnimationFrame` callbacks have no defined order
   between them. The symptom is a map that flashes while a splitter is dragged, and the fix is
   to make the loop do the resize immediately before it draws.
+- **Cache the ground in chunks, not in one piece.** A single cache covering the viewport is
+  fine until you drag a long way: every time the view leaves it, the whole thing is repainted,
+  which measured as frames of 100ms and more in the middle of a pan. A grid of 384px chunks,
+  one built per frame at most, holds the worst frame of a long drag at 26ms with nothing
+  dropped. Chunks are sized in *screen* pixels so their canvases stay constant at every zoom.
+  The shore's blurred shadow must stay outside them — a blur clipped to a chunk seams along
+  every chunk edge.
 - **Cache the ground, but not on every resize.** It depends only on zoom and position, so it is
   painted into an offscreen canvas covering the viewport plus 40% and blitted; panning went
   28fps to 99. Dropping that cache inside `resize()` undid all of it, because a splitter drag

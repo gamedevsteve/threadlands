@@ -300,30 +300,53 @@ function hash2(x: number, y: number): number {
 const perf = { noShadow: false, noPatches: false, noClip: false, noCache: false };
 
 /**
- * The ground is expensive and barely changes, so it is painted into an
- * offscreen canvas and blitted.
+ * The ground is expensive and barely changes, so it is cached — in chunks.
  *
- * It depends only on the zoom and on where you are looking, never on time, so
- * a cache covering rather more than the viewport survives a long pan and is
- * rebuilt only when you reach its edge or change zoom. Panning then costs one
- * blit instead of a clip, a pattern fill and a few dozen alpha-blended patches.
+ * One cache covering the viewport is fine until you drag a long way: each time
+ * the view leaves it the whole thing is repainted, which showed up as frames of
+ * 100ms and more in the middle of a pan. A grid of small chunks means a long
+ * drag only builds the few that have just come into view, each a fraction of a
+ * full repaint.
+ *
+ * Chunks are sized in screen pixels, so their canvases stay the same size at
+ * every zoom; the zoom is baked into the grid instead, and changing it starts a
+ * fresh set.
  */
-type GroundCache = {
-  canvas: HTMLCanvasElement;
-  size: number;
-  dpr: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
-let groundCache: GroundCache | null = null;
+const CHUNK_PX = 384;
+/** How many chunks may be built in one frame before the rest wait their turn. */
+const CHUNK_BUDGET = 1;
+/** Several screenfuls' worth; oldest evicted first. */
+const CHUNK_LIMIT = 48;
 
-/** How far past the viewport the cache reaches, as a fraction of it. */
-const GROUND_MARGIN = 0.4;
+let groundChunks = new Map<string, HTMLCanvasElement>();
+let chunkEra = "";
+let chunkBudget = 0;
 
 function invalidateGround(): void {
-  groundCache = null;
+  groundChunks = new Map();
+}
+
+/**
+ * The landmass's drop shadow. Drawn straight to the screen, never into a chunk:
+ * a blur clipped to a chunk would seam along every chunk edge.
+ *
+ * Only when the shore is in view. A blur costs by the area it covers, and
+ * zoomed in the edge is far off screen while the blur was still being paid.
+ */
+function paintShore(size: number, vx: number, vy: number, vw: number, vh: number): void {
+  if (perf.noShadow) return;
+  const inradius = size * 1.5 * MAP_RADIUS;
+  const reach = Math.hypot(vx + vw / 2, vy + vh / 2) + Math.hypot(vw / 2, vh / 2);
+  if (reach <= inradius * 0.97) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(vx, vy, vw, vh);
+  ctx.clip();
+  ctx.translate(0, size * 0.09);
+  ctx.fillStyle = "rgba(6,16,21,.55)";
+  ctx.filter = `blur(${Math.max(2, size * 0.09)}px)`;
+  ctx.fill(getRealmPath(size));
+  ctx.restore();
 }
 
 /** Paint the ground for one world-space rectangle into any context. */
@@ -336,26 +359,6 @@ function paintGround(
   vh: number,
 ): void {
   const path = getRealmPath(size);
-
-  // A drop shadow under the whole landmass, so the realm sits on the water
-  // instead of being cut out of it. Drawn before the clip: stroking the path
-  // itself would outline every hex in it, which is the grid we are hiding.
-  //
-  // Only when the shore is in view. A blur costs by the area it covers, and
-  // zoomed in the edge is far off screen while the blur was still being paid.
-  const inradius = size * 1.5 * MAP_RADIUS;
-  const reach = Math.hypot(vx + vw / 2, vy + vh / 2) + Math.hypot(vw / 2, vh / 2);
-  if (!perf.noShadow && reach > inradius * 0.97) {
-    g.save();
-    g.beginPath();
-    g.rect(vx, vy, vw, vh);
-    g.clip();
-    g.translate(0, size * 0.09);
-    g.fillStyle = "rgba(6,16,21,.55)";
-    g.filter = `blur(${Math.max(2, size * 0.09)}px)`;
-    g.fill(path);
-    g.restore();
-  }
 
   g.save();
   if (!perf.noClip) g.clip(path);
@@ -411,6 +414,33 @@ function paintGround(
   g.restore();
 }
 
+function groundChunk(cx: number, cy: number, size: number): HTMLCanvasElement | null {
+  const key = `${cx},${cy}`;
+  const hit = groundChunks.get(key);
+  if (hit) return hit;
+  if (chunkBudget <= 0) return null;
+
+  const c = document.createElement("canvas");
+  c.width = Math.ceil(CHUNK_PX * dpr);
+  c.height = Math.ceil(CHUNK_PX * dpr);
+  const g = c.getContext("2d");
+  if (!g) return null;
+  chunkBudget--;
+
+  const wx = cx * CHUNK_PX;
+  const wy = cy * CHUNK_PX;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.translate(-wx, -wy);
+  paintGround(g, size, wx, wy, CHUNK_PX, CHUNK_PX);
+
+  groundChunks.set(key, c);
+  if (groundChunks.size > CHUNK_LIMIT) {
+    const oldest = groundChunks.keys().next().value;
+    if (oldest !== undefined) groundChunks.delete(oldest);
+  }
+  return c;
+}
+
 /** Grass, tiled across the realm and anchored to the world so it pans with it. */
 function drawGround(size: number): void {
   const origin = worldToScreen(0, 0);
@@ -419,52 +449,39 @@ function drawGround(size: number): void {
   const vw = canvas.clientWidth;
   const vh = canvas.clientHeight;
 
+  ctx.save();
+  ctx.translate(origin.x, origin.y);
+  paintShore(size, vx, vy, vw, vh);
+
   if (perf.noCache) {
-    ctx.save();
-    ctx.translate(origin.x, origin.y);
     paintGround(ctx, size, vx, vy, vw, vh);
     ctx.restore();
     return;
   }
 
-  const stale =
-    !groundCache ||
-    groundCache.size !== size ||
-    groundCache.dpr !== dpr ||
-    vx < groundCache.x ||
-    vy < groundCache.y ||
-    vx + vw > groundCache.x + groundCache.w ||
-    vy + vh > groundCache.y + groundCache.h;
+  // A change of zoom or pixel ratio makes every cached chunk wrong.
+  const era = `${size}|${dpr}`;
+  if (era !== chunkEra) {
+    chunkEra = era;
+    invalidateGround();
+  }
 
-  if (stale) {
-    const mx = vw * GROUND_MARGIN;
-    const my = vh * GROUND_MARGIN;
-    const cx = vx - mx;
-    const cy = vy - my;
-    const cw = vw + mx * 2;
-    const ch = vh + my * 2;
+  chunkBudget = CHUNK_BUDGET;
+  const x0 = Math.floor(vx / CHUNK_PX);
+  const x1 = Math.floor((vx + vw) / CHUNK_PX);
+  const y0 = Math.floor(vy / CHUNK_PX);
+  const y1 = Math.floor((vy + vh) / CHUNK_PX);
 
-    const c = groundCache?.canvas ?? document.createElement("canvas");
-    c.width = Math.ceil(cw * dpr);
-    c.height = Math.ceil(ch * dpr);
-    const g = c.getContext("2d");
-    if (g) {
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.translate(-cx, -cy);
-      paintGround(g, size, cx, cy, cw, ch);
-      groundCache = { canvas: c, size, dpr, x: cx, y: cy, w: cw, h: ch };
+  for (let cy = y0; cy <= y1; cy++) {
+    for (let cx = x0; cx <= x1; cx++) {
+      const chunk = groundChunk(cx, cy, size);
+      if (chunk) ctx.drawImage(chunk, cx * CHUNK_PX, cy * CHUNK_PX, CHUNK_PX, CHUNK_PX);
+      // Over budget: the water shows for one frame and it arrives on the next,
+      // which beats a long drag stuttering.
+      else invalidate();
     }
   }
-
-  if (groundCache) {
-    ctx.drawImage(
-      groundCache.canvas,
-      origin.x + groundCache.x,
-      origin.y + groundCache.y,
-      groundCache.w,
-      groundCache.h,
-    );
-  }
+  ctx.restore();
 }
 
 function strokeHex(cx: number, cy: number, size: number, colour: string, width = 2): void {

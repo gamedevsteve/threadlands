@@ -35,6 +35,9 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Changed
 
+- Dragging the map a long way no longer stutters. The ground is cached in
+  chunks rather than one viewport-sized piece, so a long pan builds only what
+  has just come into view.
 - New art for the cottage, the camp and the city. Camps and cities now sit
   directly on the ground rather than each on its own disc.
 
