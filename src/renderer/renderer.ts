@@ -758,8 +758,8 @@ function draw(): void {
       // Fixed to the cottage, just off its left edge, in the same world units
       // as the building — so he keeps his place beside it at every zoom. The
       // name plate passes over him; it is drawn later.
-      const ax = x - size * SPRITE_FRACTION - w * 0.78;
-      const feet = foot - size * 0.11;
+      const ax = x - size * SPRITE_FRACTION - w * 0.52;
+      const feet = foot - size * 0.21;
 
       ctx.save();
       ctx.globalAlpha = 0.32;
