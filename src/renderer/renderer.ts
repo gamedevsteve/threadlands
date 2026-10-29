@@ -755,11 +755,10 @@ function draw(): void {
     if (avatarImg && avatarBox) {
       const h = size * 1.1;
       const w = h * (avatarBox.w / avatarBox.h);
-      // Stand just clear of the name plate's left edge rather than at a fixed
-      // distance from the cottage. The plate is sized in screen pixels and the
-      // cottage in world units, so any world-space offset buries him at one
-      // zoom or strands him at another.
-      const ax = x - (BANNER_WIDTH * bannerScale()) / 2 - w * 0.55;
+      // Fixed to the cottage, just off its left edge, in the same world units
+      // as the building — so he keeps his place beside it at every zoom. The
+      // name plate passes over him; it is drawn later.
+      const ax = x - size * SPRITE_FRACTION - w * 0.42;
       const feet = foot + size * 0.04;
 
       ctx.save();
