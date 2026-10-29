@@ -12,6 +12,7 @@ import type { Realm, RealmDefaults, Settlement } from "../shared/types.js";
 const CHAT_KEPT_ON_DISK = 200;
 
 export const DEFAULTS: RealmDefaults = {
+  cottageName: "You",
   notifications: "background",
   model: null,
   permissionMode: "default",
@@ -25,6 +26,11 @@ export class RealmStore {
   readonly dir = join(app.getPath("userData"), "realm");
   private readonly file = join(this.dir, "realm.json");
   readonly profilesDir = join(this.dir, "profiles");
+  /**
+   * The avatar lives beside the realm, not in the app's assets.
+   * Shipping one would make it everybody's; keeping it here makes it yours.
+   */
+  readonly avatarFile = join(this.dir, "avatar.png");
 
   settlements = new Map<string, Settlement>();
   cottageHex = { q: 0, r: 0 };

@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld("keep", {
   openTerminal: (id: string) => ipcRenderer.invoke("openTerminal", id),
   openExternal: (url: string) => ipcRenderer.invoke("openExternal", url),
   testNotification: () => ipcRenderer.invoke("testNotification"),
+  getAvatar: () => ipcRenderer.invoke("getAvatar"),
+  setAvatar: () => ipcRenderer.invoke("setAvatar"),
+  clearAvatar: () => ipcRenderer.invoke("clearAvatar"),
   pickFolder: (startIn?: string | null) => ipcRenderer.invoke("pickFolder", startIn),
   toggleMaximize: () => ipcRenderer.invoke("toggleMaximize"),
   onWindowState: (cb: (big: boolean) => void) =>

@@ -13,12 +13,22 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **Your name and your avatar.** The cottage takes a name, so the map says who
+  you are instead of "You", and an image that stands outside the cottage door.
+  The avatar is kept beside your realm rather than in the app's assets, so it is
+  yours and not shipped to anyone else; it is copied in, scaled to 512px and
+  read back as a data URL.
 - A vertical rail of map tools against the inside edge of the panel, following
   the splitter as you drag it. First tool: **home**, which glides the map back
   to the cottage. The camera eases rather than snapping, and a notification you
   click now glides to its settlement the same way.
 
 ### Changed
+
+- The cottage reads like a settlement's details: capitalised labels, one setting
+  per field, a hairline between each.
+- The map tool rail sits at the top right rather than centred, and its buttons
+  grow from their middle on hover instead of sliding left.
 
 - A settlement's panel pins only its **name**, with an info button beside it.
   Everything else — folder, account, tokens, spend, model, permission mode,

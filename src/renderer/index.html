@@ -117,7 +117,7 @@
   .rail {
     position: fixed;
     right: calc(var(--aside-w, 380px) + 7px + 14px);
-    top: 50%; transform: translateY(-50%);
+    top: calc(44px + 14px);          /* below the title bar */
     display: flex; flex-direction: column; gap: 10px;
     z-index: 5;
     /* The rail itself must not eat clicks meant for the map underneath. */
@@ -132,8 +132,9 @@
     transition: opacity .12s ease, transform .12s ease;
   }
   .railbtn img { width: 100%; height: 100%; display: block; }
-  .railbtn:hover { opacity: 1; transform: translateX(-2px) scale(1.06); }
-  .railbtn:active { transform: translateX(-1px) scale(.97); }
+  /* Grow from the middle, not away from the panel. */
+  .railbtn:hover { opacity: 1; transform: scale(1.09); }
+  .railbtn:active { transform: scale(.97); }
 
   #map { display: block; width: 100%; height: 100%; cursor: grab; }
   #map.dragging { cursor: grabbing; }
@@ -247,6 +248,25 @@
   .details.open { transform: translateX(0); }
   .details label:first-of-type { margin-top: 16px; }
   .details .hint { font-size: 11px; margin: 4px 0 0; }
+
+  /* One setting per field, with a hairline between them. */
+  .field { padding: 10px 0 12px; border-bottom: 1px solid rgba(94, 72, 38, .22); }
+  .field:last-of-type { border-bottom: 0; }
+  .field label { margin-top: 0; }
+  .field .hint, .hint { font-size: 11px; margin: 5px 0 0; }
+  .field .btns { margin-bottom: 0; }
+
+  .avatarrow { display: flex; align-items: center; gap: 12px; }
+  .avatarprev {
+    width: 56px; height: 56px; flex: none; border-radius: 10px;
+    border: 1px solid var(--edge);
+    background: rgba(255, 250, 238, .5) center / cover no-repeat;
+  }
+  .avatarprev.empty::after {
+    content: "none"; display: grid; place-items: center; height: 100%;
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim);
+  }
+  .avatarrow .btns { margin: 0; flex-wrap: wrap; }
 
   /* Key/value rows: labels in caps, a hairline between each. */
   .kv {

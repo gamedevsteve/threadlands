@@ -1,10 +1,10 @@
 /**
  * Threadlands — Electron main. Window, IPC, the idle reaper.
  */
-import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, shell } from "electron";
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, nativeImage, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RealmStore } from "./realm.js";
@@ -266,6 +266,41 @@ app.whenReady().then(() => {
       n.show();
       setTimeout(() => resolve("Sent, but macOS never confirmed it."), 2500);
     });
+  });
+
+  // The avatar is read back as a data URL rather than a path: the renderer is a
+  // file:// page, and handing it another file:// URL is both fragile and a
+  // wider door than this needs.
+  const avatarDataUrl = (): string | null => {
+    if (!existsSync(store.avatarFile)) return null;
+    return `data:image/png;base64,${readFileSync(store.avatarFile).toString("base64")}`;
+  };
+
+  ipcMain.handle("getAvatar", () => avatarDataUrl());
+
+  ipcMain.handle("setAvatar", async () => {
+    const r = await dialog.showOpenDialog({
+      title: "Choose your avatar",
+      properties: ["openFile"],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"] }],
+    });
+    const picked = r.canceled ? null : r.filePaths[0];
+    if (!picked) return avatarDataUrl();
+
+    const img = nativeImage.createFromPath(picked);
+    if (img.isEmpty()) throw new Error("that file is not an image Threadlands can read");
+    // Standing beside a cottage, it is never drawn large. Cap it so the realm
+    // folder does not quietly grow by several megabytes.
+    const { width, height } = img.getSize();
+    const scaled = Math.max(width, height) > 512
+      ? img.resize(width >= height ? { width: 512 } : { height: 512 })
+      : img;
+    writeFileSync(store.avatarFile, scaled.toPNG());
+    return avatarDataUrl();
+  });
+
+  ipcMain.handle("clearAvatar", () => {
+    if (existsSync(store.avatarFile)) rmSync(store.avatarFile);
   });
 
   ipcMain.handle("openExternal", (_e, url: string) => {

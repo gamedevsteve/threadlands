@@ -27,6 +27,9 @@ type Keep = {
   openTerminal(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   testNotification(): Promise<string>;
+  getAvatar(): Promise<string | null>;
+  setAvatar(): Promise<string | null>;
+  clearAvatar(): Promise<void>;
   pickFolder(startIn?: string | null): Promise<string | null>;
   budgets(): Promise<AccountBudget[]>;
   models(): Promise<ModelChoice[]>;
@@ -60,6 +63,21 @@ let founding: { q: number; r: number } | null = null;
 let budgets: AccountBudget[] = [];
 let budgetsLoading = false;
 let models: ModelChoice[] = [];
+/** Your avatar, as a data URL, and the decoded image the map draws. */
+let avatarUrl: string | null = null;
+let avatarImg: HTMLImageElement | null = null;
+
+function loadAvatarImage(): void {
+  if (!avatarUrl) {
+    avatarImg = null;
+    invalidate();
+    return;
+  }
+  const img = new Image();
+  img.onload = () => { avatarImg = img; invalidate(); };
+  img.onerror = () => { avatarImg = null; invalidate(); };
+  img.src = avatarUrl;
+}
 /** Which collapsed runs of tool work have been opened, by settlement and index. */
 const expandedRuns = new Set<string>();
 /** Whether the details sheet is slid out over the transcript. */
@@ -687,9 +705,30 @@ function draw(): void {
         ? [{ colour: "rgba(240,246,248,.85)", blur: size * 0.14, passes: 2 }]
         : [];
     drawSprite("cottage", x, y, size, false, cottageGlow);
+
+    const foot = spriteFoot("cottage", y, size);
     if (camera.zoom >= BANNER_ALL_BELOW || cottageOpen || hoveredCottage) {
-      const foot = spriteFoot("cottage", y, size);
-      plates.push(() => nameplate("You", x, foot, "#f0dcae", "#3a2a12"));
+      plates.push(() => nameplate(realm.defaults.cottageName || "You", x, foot, "#f0dcae", "#3a2a12"));
+    }
+
+    // You, standing outside your own door — queued after the name plate so you
+    // stand in front of it rather than behind. The plate is wider than the
+    // cottage, so anything at ground level is otherwise covered by it.
+    if (avatarImg) {
+      plates.push(() => {
+        const h = size * 1.15;
+        const w = h * (avatarImg!.width / avatarImg!.height);
+        const ax = x - size * 0.82;
+        const feet = foot + size * 0.06;
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.ellipse(ax, feet - h * 0.02, w * 0.38, h * 0.055, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.drawImage(avatarImg!, ax - w / 2, feet - h, w, h);
+      });
     }
   }
 
@@ -1090,34 +1129,61 @@ function renderCottage(): string {
 
   const d = realm.defaults;
   return `<h2>The cottage</h2>
-    <p class="muted" style="margin-top:0">Realm defaults, and what each account has left.</p>
+    <p class="muted" style="margin-top:0">Who you are, what every settlement inherits, and what each account has left.</p>
+
+    <h2>You</h2>
+    <div class="field">
+      <label>Name</label>
+      <input id="d-cottage-name" maxlength="24" placeholder="You" value="${esc(d.cottageName)}" />
+      <p class="muted hint">What the cottage is called on the map.</p>
+    </div>
+    <div class="field">
+      <label>Avatar</label>
+      <div class="avatarrow">
+        <div class="avatarprev empty" id="d-avatar-prev"></div>
+        <div class="btns">
+          <button id="d-avatar-pick">Choose image…</button>
+          <button id="d-avatar-clear">Remove</button>
+        </div>
+      </div>
+      <p class="muted hint">Stands outside the cottage. Kept beside your realm rather than in the app, so it stays yours.</p>
+    </div>
+
     <h2>Budget</h2>
     ${budgetsLoading ? '<div class="muted">probing accounts…</div>' : rows || '<div class="muted">no accounts</div>'}
     <div class="btns"><button id="reprobe">Refresh</button></div>
-    <p class="muted" style="font-size:11px">Plan limits are published as percent and a reset time; there is no token balance to show. Per-settlement token counts are exact — see a settlement.</p>
-    <hr>
+    <p class="muted hint">Plan limits are published as percent and a reset time; there is no token balance to show. Per-settlement token counts are exact — see a settlement.</p>
+
     <h2>Defaults</h2>
-    <label>Model</label>
-    <select id="d-model">${modelOptions(d.model, models.length ? "Claude Code's default" : "loading models…")}</select>
-    <p class="muted" style="font-size:11px;margin:4px 0 0">What a settlement uses unless it overrides this.</p>
-    <label>Notify me</label>
-    <select id="d-notify">${NOTIFY_WHEN.map(
-      (n) => `<option value="${n.value}"${n.value === d.notifications ? " selected" : ""}>${esc(n.label)}</option>`,
-    ).join("")}</select>
-    <p class="muted" style="font-size:11px;margin:4px 0 0">When a settlement needs you, or finishes what it was doing.</p>
-    <div class="btns"><button id="d-testnotify">Send a test notification</button></div>
-    <label>Asks before acting</label>
-    <select id="d-mode">${modeOptions(d.permissionMode, null)}</select>
-    <p class="muted" style="font-size:11px;margin:4px 0 0">${esc(modeHint(d.permissionMode))}</p>
-    <label>Base folder for new settlements</label>
-    <div style="display:flex;gap:6px">
-      <input id="d-base" placeholder="e.g. ~/Documents/repos" value="${esc(d.baseFolder ?? "")}" />
-      <button id="d-browse">Browse</button>
+    <div class="field">
+      <label>Model</label>
+      <select id="d-model">${modelOptions(d.model, models.length ? "Claude Code's default" : "loading models…")}</select>
+      <p class="muted hint">What a settlement uses unless it overrides this.</p>
     </div>
-    <p class="muted" style="font-size:11px;margin:4px 0 0">Where the folder browser opens when you found a camp or a city.</p>
-    <label>Camp idle timeout (minutes)</label><input id="d-camp" type="number" min="1" value="${d.campIdleMinutes}">
-    <label>City idle timeout (minutes)</label><input id="d-city" type="number" min="1" value="${d.cityIdleMinutes}">
-    <label>Per-settlement budget ceiling (USD)</label><input id="d-budget" type="number" min="0" step="0.5" value="${d.maxBudgetUsd}">
+    <div class="field">
+      <label>Notify me</label>
+      <select id="d-notify">${NOTIFY_WHEN.map(
+        (n) => `<option value="${n.value}"${n.value === d.notifications ? " selected" : ""}>${esc(n.label)}</option>`,
+      ).join("")}</select>
+      <p class="muted hint">When a settlement needs you, or finishes what it was doing.</p>
+      <div class="btns"><button id="d-testnotify">Send a test notification</button></div>
+    </div>
+    <div class="field">
+      <label>Asks before acting</label>
+      <select id="d-mode">${modeOptions(d.permissionMode, null)}</select>
+      <p class="muted hint">${esc(modeHint(d.permissionMode))}</p>
+    </div>
+    <div class="field">
+      <label>Base folder for new settlements</label>
+      <div style="display:flex;gap:6px">
+        <input id="d-base" placeholder="e.g. ~/Documents/repos" value="${esc(d.baseFolder ?? "")}" />
+        <button id="d-browse">Browse</button>
+      </div>
+      <p class="muted hint">Where the folder browser opens when you found a camp or a city.</p>
+    </div>
+    <div class="field"><label>Camp idle timeout (minutes)</label><input id="d-camp" type="number" min="1" value="${d.campIdleMinutes}"></div>
+    <div class="field"><label>City idle timeout (minutes)</label><input id="d-city" type="number" min="1" value="${d.cityIdleMinutes}"></div>
+    <div class="field"><label>Per-settlement budget ceiling (USD)</label><input id="d-budget" type="number" min="0" step="0.5" value="${d.maxBudgetUsd}"></div>
     <div class="btns"><button class="primary" id="d-save">Save</button></div>`;
 }
 
@@ -1315,6 +1381,29 @@ function render(): void {
     composer.classList.add("hidden");
     hint.textContent = "the cottage";
     pane.querySelector("#reprobe")?.addEventListener("click", () => void refreshBudgets());
+    const showAvatar = (url: string | null) => {
+      const box = pane.querySelector<HTMLElement>("#d-avatar-prev");
+      if (!box) return;
+      box.style.backgroundImage = url ? `url("${url}")` : "";
+      box.classList.toggle("empty", !url);
+    };
+    showAvatar(avatarUrl);
+    pane.querySelector("#d-avatar-pick")?.addEventListener("click", async () => {
+      try {
+        avatarUrl = await keep.setAvatar();
+        loadAvatarImage();
+        showAvatar(avatarUrl);
+      } catch (e) {
+        toast(String((e as Error)?.message ?? e).replace(/^Error invoking remote method '\w+': Error: /, ""));
+      }
+    });
+    pane.querySelector("#d-avatar-clear")?.addEventListener("click", async () => {
+      await keep.clearAvatar();
+      avatarUrl = null;
+      loadAvatarImage();
+      showAvatar(null);
+    });
+
     pane.querySelector("#d-testnotify")?.addEventListener("click", async () => {
       toast(await keep.testNotification());
     });
@@ -1331,7 +1420,10 @@ function render(): void {
         "default") as PermissionModeValue;
       const notifyWhen = ((pane.querySelector("#d-notify") as HTMLSelectElement)?.value ||
         "background") as NotifyWhen;
+      const cottageName =
+        (pane.querySelector("#d-cottage-name") as HTMLInputElement)?.value.trim() || "You";
       realm.defaults = {
+        cottageName,
         notifications: notifyWhen,
         model: chosen,
         permissionMode: mode,
@@ -1735,6 +1827,7 @@ window.addEventListener("resize", () => {
   ]);
   realm = await keep.getRealm();
   keep.models().then((m) => { models = m; render(); }).catch(() => {});
+  keep.getAvatar().then((u) => { avatarUrl = u; loadAvatarImage(); }).catch(() => {});
   for (const s of realm.settlements) byId.set(s.id, s);
   resize();
   render();

@@ -106,6 +106,8 @@ export const NOTIFY_WHEN = [
 export type NotifyWhen = (typeof NOTIFY_WHEN)[number]["value"];
 
 export type RealmDefaults = {
+  /** What the cottage is called on the map. Yours, not "You". */
+  cottageName: string;
   /** When a settlement may raise a system notification. */
   notifications: NotifyWhen;
   /** The model a settlement uses unless it says otherwise. Null = the CLI's own default. */
@@ -143,6 +145,10 @@ export type Api = {
   openTerminal(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   testNotification(): Promise<string>;
+  /** The avatar as a data URL, or null if none has been chosen. */
+  getAvatar(): Promise<string | null>;
+  setAvatar(): Promise<string | null>;
+  clearAvatar(): Promise<void>;
   pickFolder(startIn?: string | null): Promise<string | null>;
   budgets(): Promise<AccountBudget[]>;
   models(): Promise<ModelChoice[]>;

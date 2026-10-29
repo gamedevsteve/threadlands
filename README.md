@@ -137,6 +137,13 @@ renderer set how big, what zoom that size is for, and the zoom below which only
 the selected, hovered and flagged names are drawn — without that last one they
 stack up and bury the settlements when you zoom out.
 
+### You
+
+The cottage takes your **name** and an **avatar**, who stands outside its door.
+The avatar is copied into your realm folder — beside `realm.json`, not into the
+app's assets — so it is yours rather than something shipped with Threadlands,
+and anyone else running this picks their own.
+
 ### Settings
 
 The cottage holds the realm's defaults: the **model** every settlement uses
