@@ -225,6 +225,9 @@ reaped and respawns on the next message with its transcript intact.
 `Enter` sends a prompt, `Shift`+`Enter` starts a new line. `⌘`+`Enter` still
 sends too.
 
+A rail of map tools sits against the inside edge of the panel and follows it as
+you drag the splitter. **Home** glides the map back to the cottage.
+
 ### Moving around
 
 Two fingers pan, pinch or ⌘+scroll zooms, and a mouse can still drag. `+` and

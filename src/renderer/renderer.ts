@@ -912,6 +912,35 @@ window.addEventListener("mouseup", (e) => {
   clickHex(h);
 });
 
+/**
+ * Glide the camera somewhere instead of teleporting.
+ *
+ * Snapping the map leaves you to work out what moved; a short ease makes the
+ * relationship between where you were and where you are obvious. Interrupted by
+ * any later call, so a second click during a flight simply takes over.
+ */
+let flightId = 0;
+
+function flyTo(x: number, y: number, ms = 420): void {
+  const id = ++flightId;
+  const fromX = camera.x;
+  const fromY = camera.y;
+  const dx = x - fromX;
+  const dy = y - fromY;
+  if (Math.hypot(dx, dy) < 1) return;
+  const started = performance.now();
+  const step = (now: number) => {
+    if (id !== flightId) return;
+    const t = Math.min(1, (now - started) / ms);
+    const e = 1 - (1 - t) ** 3; // ease out: quick away, gentle arrival
+    camera.x = fromX + dx * e;
+    camera.y = fromY + dy * e;
+    invalidate();
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 /** Zoom about a point on screen, so what is under the cursor stays under it. */
 function zoomAt(px: number, py: number, factor: number): void {
   const before = screenToWorld(px, py);
@@ -1537,6 +1566,11 @@ promptEl.addEventListener("keydown", (e) => {
   e.preventDefault();
   void sendPrompt();
 });
+document.getElementById("go-home")!.addEventListener("click", () => {
+  const p = hexToPixel(realm.cottageHex, hexSize());
+  flyTo(-p.x, -p.y);
+});
+
 const zoomWin = document.getElementById("zoomwin") as HTMLButtonElement;
 const setZoomLabel = (big: boolean) => { zoomWin.textContent = big ? "Restore" : "Fill screen"; };
 zoomWin.addEventListener("click", async () => setZoomLabel(await keep.toggleMaximize()));
@@ -1567,8 +1601,7 @@ keep.onFocusSettlement((id) => {
   // Bring it into view: a flag you clicked from the Dock may be off screen.
   const s = byId.get(id)!;
   const p = hexToPixel(s.hex, hexSize());
-  camera.x = -p.x;
-  camera.y = -p.y;
+  flyTo(-p.x, -p.y);
   render();
 });
 

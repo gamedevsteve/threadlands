@@ -114,6 +114,27 @@
     color: #fbf2df;
   }
 
+  .rail {
+    position: fixed;
+    right: calc(var(--aside-w, 380px) + 7px + 14px);
+    top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 10px;
+    z-index: 5;
+    /* The rail itself must not eat clicks meant for the map underneath. */
+    pointer-events: none;
+  }
+  .railbtn {
+    pointer-events: auto;
+    width: 42px; height: 42px; padding: 0;
+    border: 0; background: none; border-radius: 11px;
+    cursor: pointer; opacity: .82;
+    filter: drop-shadow(0 3px 7px rgba(6, 16, 21, .5));
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .railbtn img { width: 100%; height: 100%; display: block; }
+  .railbtn:hover { opacity: 1; transform: translateX(-2px) scale(1.06); }
+  .railbtn:active { transform: translateX(-1px) scale(.97); }
+
   #map { display: block; width: 100%; height: 100%; cursor: grab; }
   #map.dragging { cursor: grabbing; }
 
@@ -392,6 +413,13 @@
     <button id="zoomwin" title="Fill the screen">Fill screen</button>
   </div>
   <canvas id="map"></canvas>
+  <!-- Map tools. Sits over the map, hard against the panel, and follows the
+       splitter because its offset is the same custom property. -->
+  <div class="rail" id="rail">
+    <button class="railbtn" id="go-home" title="Centre on the cottage">
+      <img src="./assets/home.png" alt="Centre on the cottage" />
+    </button>
+  </div>
   <div class="splitter" id="splitter" title="Drag to resize · double-click to reset"></div>
   <aside>
     <div class="pane" id="pane"></div>

@@ -11,6 +11,13 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- A vertical rail of map tools against the inside edge of the panel, following
+  the splitter as you drag it. First tool: **home**, which glides the map back
+  to the cottage. The camera eases rather than snapping, and a notification you
+  click now glides to its settlement the same way.
+
 ### Changed
 
 - A settlement's panel pins only its **name**, with an info button beside it.
