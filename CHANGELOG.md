@@ -11,6 +11,13 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- A settlement's details stay put while only its transcript scrolls. Scrolling
+  both together meant losing the name, the mode and the spend as soon as you
+  read back through a conversation. On a short window the details scroll
+  themselves rather than starve the transcript.
+
 ## [0.1.0] — 2026-10-29
 
 First version that replaces a terminal rather than demonstrating that it could.

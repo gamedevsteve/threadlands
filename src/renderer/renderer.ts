@@ -1228,7 +1228,9 @@ function renderSettlement(s: Settlement): string {
     })
     .join("");
 
-  return `${flag}
+  // The settlement's details stay put; only the transcript scrolls. Scrolling
+  // both together meant losing the name and the mode as soon as you read back.
+  return `<div class="shead">${flag}
     <div class="row"><b>${esc(s.name)}</b><span class="muted">${esc(s.kind)} · ${esc(stateWord)}</span></div>
     <div class="row"><span class="muted mono">${esc(s.cwd)}</span></div>
     <div class="row"><span class="muted">account</span><span class="mono">${esc(s.profileId)}</span></div>
@@ -1249,15 +1251,15 @@ function renderSettlement(s: Settlement): string {
     <div class="row"><span class="muted">spent</span><span class="mono">$${s.costUsd.toFixed(4)}</span></div>
     ${s.error ? `<div class="msg system">${esc(s.error)}</div>` : ""}
     ${renderRaze(s)}
-    <hr>
-    <h2>The governor</h2>
-    <div id="chat">${chat || '<div class="muted">Nothing said yet.</div>'}</div>`;
+  </div>
+  <div id="chat" class="chatscroll">${chat || '<div class="muted">Nothing said yet.</div>'}</div>`;
 }
 
 function render(): void {
   if (!realm) return;
   invalidate();
   const s = selected ? byId.get(selected) : null;
+  pane.classList.toggle("split", !!s && !cottageOpen && !founding);
 
   if (cottageOpen) {
     pane.innerHTML = renderCottage();
@@ -1343,8 +1345,10 @@ function render(): void {
   // Only follow new messages if you were already reading the newest ones.
   // Re-rendering for any other reason — expanding a run, a token count ticking
   // over — must leave the scroll exactly where you left it.
-  const wasAtBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 48;
-  const keptScroll = pane.scrollTop;
+  const scroller = (): HTMLElement => pane.querySelector<HTMLElement>("#chat.chatscroll") ?? pane;
+  const before = scroller();
+  const wasAtBottom = before.scrollHeight - before.scrollTop - before.clientHeight < 48;
+  const keptScroll = before.scrollTop;
   pane.innerHTML = renderSettlement(s);
   composer.classList.remove("hidden");
   hint.textContent = s.name;
@@ -1358,10 +1362,11 @@ function render(): void {
       // Opening a run inserts content, which would otherwise shove everything
       // below it down the page. Measure the row you clicked before and after,
       // and take the difference out of the scroll so it does not appear to move.
-      const before = b.getBoundingClientRect().top;
+      const top = b.getBoundingClientRect().top;
       render();
       const again = pane.querySelector<HTMLElement>(`.runtoggle[data-run="${CSS.escape(key)}"]`);
-      if (again) pane.scrollTop += again.getBoundingClientRect().top - before;
+      const box = pane.querySelector<HTMLElement>("#chat.chatscroll") ?? pane;
+      if (again) box.scrollTop += again.getBoundingClientRect().top - top;
     });
   });
 
@@ -1430,7 +1435,8 @@ function render(): void {
       if (e.key === "Escape") { razeArmed = null; razeTyped = ""; render(); }
     });
   }
-  pane.scrollTop = wasAtBottom ? pane.scrollHeight : keptScroll;
+  const after = scroller();
+  after.scrollTop = wasAtBottom ? after.scrollHeight : keptScroll;
 }
 
 async function refreshBudgets(): Promise<void> {
