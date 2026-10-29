@@ -582,7 +582,7 @@ are untouched.
 | **Phase 1** — the Keep | 🟡 core built | supervisor, realm, IPC, reaper. No grants, routes, workers or driver seam |
 | **Phase 2** — the map | ✅ done | grid, camera, founding, moving, ground, name plates |
 | **Phase 3** — the governor's hall | 🟡 most of it | transcript, collapsible tool runs, permission card, Open Terminal. No diffs, no *Allow always*, no workers |
-| **Phase 4** — a living realm | 🟡 partly | dormant dimming, spend and tokens per settlement, editable cottage. No notifications, no tile animation, no routes, no `listSessions` import |
+| **Phase 4** — a living realm | 🟡 partly | notifications, dormant dimming, spend and tokens per settlement, editable cottage. No tile animation, no routes, no `listSessions` import |
 | **Phase 5** — settlers and walls | ⬜ not started | |
 | **Phase 6** — messengers | ⬜ not started | |
 
@@ -814,11 +814,12 @@ your twelve repos become a populated map on day one.
 
 **Gate:** you stop opening terminals out of habit.
 
-**Status: partly.** Dormant settlements dim, spend and exact token counts show in the panel,
+**Status: partly.** Notifications are done — a settlement says when it needs you and when it
+has gone idle, and clicking one focuses the app, selects it and pans to it. Fired on the state
+*transition*, since a settlement emits many times while it works. Dormant settlements dim,
+spend and exact token counts show in the panel,
 and the cottage is editable — realm defaults for model, permission mode, idle timeouts, budget
-ceiling and base folder. Not done: native notifications when a flag goes up while the app is
-backgrounded (the thing most likely to make the map worth leaving open), spend on the tile
-rather than only in the panel, chimney smoke and lanterns, the trade-route overlay, and the
+ceiling and base folder. Not done: spend on the tile rather than only in the panel, chimney smoke and lanterns, the trade-route overlay, and the
 first-launch offer to found a city for every session `listSessions()` finds.
 
 ### Phase 5 — Settlers and walls · open-ended
@@ -1043,9 +1044,6 @@ In the order that makes the next thing possible.
    map promises a containment it does not have. The route compiler — one function from a
    settlement's `grants` to the `permissions` and `sandbox` block its sessions launch with —
    is the piece everything else hangs off, and it is testable without any UI.
-2. **Notifications.** A flag that goes up while the app is in the background is currently
-   invisible. This is the smallest change with the largest effect on whether the map is worth
-   leaving open.
 3. **`listSessions()` on first launch.** Offer a city for every session already on disk, per
    profile. A populated map on day one, from work that already exists.
 4. **Diffs in the panel.** `write path/to/file` should show what changed. This is the main

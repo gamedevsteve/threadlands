@@ -72,6 +72,11 @@ and not built.
 
 `npm run dev` rebuilds on change. `npm run typecheck` is the fast check.
 
+Releases are tags plus a [CHANGELOG](CHANGELOG.md) entry — nothing is published
+and there is no CI, so the app is built locally. [RELEASING.md](RELEASING.md)
+has the steps, and explains the two things only the packaged build has:
+working notifications and the right name in the Dock.
+
 `npm run package` builds a real app with electron-builder — a .dmg and .zip on
 macOS, NSIS on Windows, AppImage on Linux. The icon comes from
 `assets/appicon.png`: `npm run assets` keys its near-black surround to
@@ -187,6 +192,17 @@ A governor's replies render as markdown. The text is HTML-escaped *before* it
 is parsed, never after: escaping afterwards would undo the markup, and skipping
 it would let a model's output inject tags into the panel. Links open in the
 system browser rather than navigating the app away.
+
+### Notifications
+
+A settlement raises a system notification when it **needs your guidance** (a
+flag went up) and when it **has gone idle** (it finished what it was doing).
+Clicking one focuses Threadlands, selects that settlement and pans the map to
+it. The cottage sets when they fire: in the background only (the default),
+always, or never.
+
+They fire on the *transition*, not the state — a settlement emits many times
+while it works and only one of those is the moment it changed.
 
 ### Asking before acting
 

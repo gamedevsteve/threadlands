@@ -12,6 +12,7 @@ import type { Realm, RealmDefaults, Settlement } from "../shared/types.js";
 const CHAT_KEPT_ON_DISK = 200;
 
 export const DEFAULTS: RealmDefaults = {
+  notifications: "background",
   model: null,
   permissionMode: "default",
   baseFolder: null,

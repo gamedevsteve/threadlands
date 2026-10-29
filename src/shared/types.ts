@@ -96,7 +96,18 @@ export const PERMISSION_MODES = [
 
 export type PermissionModeValue = (typeof PERMISSION_MODES)[number]["value"];
 
+/** When a settlement is allowed to interrupt you. */
+export const NOTIFY_WHEN = [
+  { value: "background", label: "When Threadlands is in the background" },
+  { value: "always", label: "Always" },
+  { value: "off", label: "Never" },
+] as const;
+
+export type NotifyWhen = (typeof NOTIFY_WHEN)[number]["value"];
+
 export type RealmDefaults = {
+  /** When a settlement may raise a system notification. */
+  notifications: NotifyWhen;
   /** The model a settlement uses unless it says otherwise. Null = the CLI's own default. */
   model: string | null;
   /** How much a settlement asks before acting, unless it overrides this. */
@@ -131,6 +142,7 @@ export type Api = {
   interrupt(id: string): Promise<void>;
   openTerminal(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
+  testNotification(): Promise<string>;
   pickFolder(startIn?: string | null): Promise<string | null>;
   budgets(): Promise<AccountBudget[]>;
   models(): Promise<ModelChoice[]>;
@@ -143,4 +155,5 @@ export type Api = {
   onSettlement(cb: (s: Settlement) => void): void;
   onRemoved(cb: (id: string) => void): void;
   onBudgets(cb: (b: AccountBudget[]) => void): void;
+  onFocusSettlement(cb: (id: string) => void): void;
 };

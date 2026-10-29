@@ -1,7 +1,7 @@
 /**
  * Threadlands — Electron main. Window, IPC, the idle reaper.
  */
-import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from "electron";
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
@@ -35,13 +35,57 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 app.setPath("userData", join(app.getPath("appData"), "threadlands"));
 app.setName("Threadlands");
+// Windows groups notifications by this; without it they show as unattributed.
+app.setAppUserModelId("com.hatfieldmedia.threadlands");
 
 let win: BrowserWindow | null = null;
 let store: RealmStore;
 let sup: Supervisor;
 
+/**
+ * Tell you when a settlement wants something, or has stopped working.
+ *
+ * Fired on the *transition*, not on the state, because a settlement emits many
+ * times while it works and only one of those is the moment it changed.
+ */
+const lastNotifiedState = new Map<string, Settlement["state"]>();
+
+function notify(settlement: Settlement, body: string): void {
+  const when = store?.defaults.notifications ?? "background";
+  if (when === "off" || !Notification.isSupported()) return;
+  // "background" means: do not interrupt someone already looking at the map.
+  if (when === "background" && win?.isFocused()) return;
+
+  const n = new Notification({ title: "Threadlands", body, silent: false });
+  // macOS refuses notifications from an app it has not registered, and does so
+  // silently unless you listen: running the Electron binary straight out of
+  // node_modules fails with UNErrorDomain 1 every time. Only a packaged,
+  // signed bundle gets permission, so say which happened rather than assuming.
+  n.on("show", () => console.log(`[notify] shown: ${body}`));
+  n.on("failed", (_e, err) => console.error(`[notify] REFUSED by the OS: ${body} — ${err}`));
+  n.on("click", () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      win.webContents.send("focusSettlement", settlement.id);
+    }
+    app.focus({ steal: true });
+  });
+  n.show();
+}
+
+function announce(s: Settlement): void {
+  const prev = lastNotifiedState.get(s.id);
+  lastNotifiedState.set(s.id, s.state);
+  if (prev === s.state) return;
+  if (s.state === "needs_you") notify(s, `${s.name} needs your guidance.`);
+  else if (s.state === "idle" && prev === "working") notify(s, `${s.name} has gone idle.`);
+}
+
 /** Push a settlement snapshot at the map. The renderer holds no other truth. */
 function emit(s: Settlement): void {
+  announce(s);
   win?.webContents.send("settlement", s);
 }
 
@@ -182,6 +226,7 @@ app.whenReady().then(() => {
   ipcMain.handle("raze", (_e, id: string) => {
     sup.razed(id);
     store.settlements.delete(id);
+    lastNotifiedState.delete(id);
     store.save();
     win?.webContents.send("removed", id);
   });
@@ -207,6 +252,22 @@ app.whenReady().then(() => {
   });
 
   // Only ever hand the system browser a real web address.
+  // Lets you confirm macOS will actually deliver one, which it refuses to do
+  // for an app it has not registered — and refuses silently.
+  ipcMain.handle("testNotification", () => {
+    if (!Notification.isSupported()) return "This platform has no notifications.";
+    return new Promise<string>((resolve) => {
+      const n = new Notification({
+        title: "Threadlands",
+        body: "A test. Settlements will sound like this.",
+      });
+      n.on("show", () => resolve("Sent — if you saw nothing, check Notifications in System Settings."));
+      n.on("failed", (_e, err) => resolve(`macOS refused it: ${err}`));
+      n.show();
+      setTimeout(() => resolve("Sent, but macOS never confirmed it."), 2500);
+    });
+  });
+
   ipcMain.handle("openExternal", (_e, url: string) => {
     const ok = /^https?:\/\//i.test(url);
     if (ok) void shell.openExternal(url);
@@ -299,6 +360,13 @@ app.whenReady().then(() => {
 
   buildMenu();
   createWindow();
+
+  if (process.argv.includes("--notify-test")) {
+    const n = new Notification({ title: "Threadlands", body: "Bellhaven needs your guidance." });
+    n.on("show", () => console.log("[notify] shown"));
+    n.on("failed", (_e, err) => console.error(`[notify] REFUSED: ${err}`));
+    n.show();
+  }
 
   const selftest = process.env.THREADLANDS_SELFTEST;
   if (selftest && win) {

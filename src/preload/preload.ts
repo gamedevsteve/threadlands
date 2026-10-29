@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("keep", {
   interrupt: (id: string) => ipcRenderer.invoke("interrupt", id),
   openTerminal: (id: string) => ipcRenderer.invoke("openTerminal", id),
   openExternal: (url: string) => ipcRenderer.invoke("openExternal", url),
+  testNotification: () => ipcRenderer.invoke("testNotification"),
   pickFolder: (startIn?: string | null) => ipcRenderer.invoke("pickFolder", startIn),
   toggleMaximize: () => ipcRenderer.invoke("toggleMaximize"),
   onWindowState: (cb: (big: boolean) => void) =>
@@ -30,4 +31,6 @@ contextBridge.exposeInMainWorld("keep", {
     ipcRenderer.on("settlement", (_e, s: Settlement) => cb(s)),
   onRemoved: (cb: (id: string) => void) => ipcRenderer.on("removed", (_e, id: string) => cb(id)),
   onBudgets: (cb: (b: unknown[]) => void) => ipcRenderer.on("budgets", (_e, b: unknown[]) => cb(b)),
+  onFocusSettlement: (cb: (id: string) => void) =>
+    ipcRenderer.on("focusSettlement", (_e, id: string) => cb(id)),
 });

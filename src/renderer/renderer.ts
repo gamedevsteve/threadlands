@@ -6,10 +6,11 @@
  */
 import { hexCorners, hexDistance, hexEq, hexSpiral, hexToPixel, pixelToHex } from "./hex.js";
 import { marked } from "marked";
-import { PERMISSION_MODES } from "../shared/types.js";
+import { NOTIFY_WHEN, PERMISSION_MODES } from "../shared/types.js";
 import type {
   AccountBudget,
   ModelChoice,
+  NotifyWhen,
   PermissionModeValue,
   Realm,
   Settlement,
@@ -25,6 +26,7 @@ type Keep = {
   interrupt(id: string): Promise<void>;
   openTerminal(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
+  testNotification(): Promise<string>;
   pickFolder(startIn?: string | null): Promise<string | null>;
   budgets(): Promise<AccountBudget[]>;
   models(): Promise<ModelChoice[]>;
@@ -37,6 +39,7 @@ type Keep = {
   onSettlement(cb: (s: Settlement) => void): void;
   onRemoved(cb: (id: string) => void): void;
   onBudgets(cb: (b: AccountBudget[]) => void): void;
+  onFocusSettlement(cb: (id: string) => void): void;
 };
 const keep = (window as unknown as { keep: Keep }).keep;
 
@@ -1065,6 +1068,12 @@ function renderCottage(): string {
     <label>Model</label>
     <select id="d-model">${modelOptions(d.model, models.length ? "Claude Code's default" : "loading models…")}</select>
     <p class="muted" style="font-size:11px;margin:4px 0 0">What a settlement uses unless it overrides this.</p>
+    <label>Notify me</label>
+    <select id="d-notify">${NOTIFY_WHEN.map(
+      (n) => `<option value="${n.value}"${n.value === d.notifications ? " selected" : ""}>${esc(n.label)}</option>`,
+    ).join("")}</select>
+    <p class="muted" style="font-size:11px;margin:4px 0 0">When a settlement needs you, or finishes what it was doing.</p>
+    <div class="btns"><button id="d-testnotify">Send a test notification</button></div>
     <label>Asks before acting</label>
     <select id="d-mode">${modeOptions(d.permissionMode, null)}</select>
     <p class="muted" style="font-size:11px;margin:4px 0 0">${esc(modeHint(d.permissionMode))}</p>
@@ -1255,6 +1264,9 @@ function render(): void {
     composer.classList.add("hidden");
     hint.textContent = "the cottage";
     pane.querySelector("#reprobe")?.addEventListener("click", () => void refreshBudgets());
+    pane.querySelector("#d-testnotify")?.addEventListener("click", async () => {
+      toast(await keep.testNotification());
+    });
     pane.querySelector("#d-browse")?.addEventListener("click", async () => {
       const el = pane.querySelector("#d-base") as HTMLInputElement;
       const picked = await keep.pickFolder(el.value.trim() || realm.defaults.baseFolder);
@@ -1266,7 +1278,10 @@ function render(): void {
       const chosen = (pane.querySelector("#d-model") as HTMLSelectElement)?.value || null;
       const mode = ((pane.querySelector("#d-mode") as HTMLSelectElement)?.value ||
         "default") as PermissionModeValue;
+      const notifyWhen = ((pane.querySelector("#d-notify") as HTMLSelectElement)?.value ||
+        "background") as NotifyWhen;
       realm.defaults = {
+        notifications: notifyWhen,
         model: chosen,
         permissionMode: mode,
         baseFolder: base || null,
@@ -1496,6 +1511,19 @@ keep.onSettlement((s) => {
   if (s.id === selected || s.state === "needs_you" || (isNew && !selected && !cottageOpen)) render();
   else if (!selected && !cottageOpen) hint.textContent = `${byId.size} settlement${byId.size === 1 ? "" : "s"}`;
 });
+keep.onFocusSettlement((id) => {
+  if (!byId.has(id)) return;
+  selected = id;
+  cottageOpen = false;
+  founding = null;
+  // Bring it into view: a flag you clicked from the Dock may be off screen.
+  const s = byId.get(id)!;
+  const p = hexToPixel(s.hex, hexSize());
+  camera.x = -p.x;
+  camera.y = -p.y;
+  render();
+});
+
 keep.onModels((m) => {
   models = m;
   render();

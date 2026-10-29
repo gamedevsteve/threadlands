@@ -1,6 +1,6 @@
 {
   "name": "threadlands",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,9 @@
     "usage": "tsx spike/usage-probe.ts",
     "selftest": "npm run build && THREADLANDS_SELFTEST=./selftest electron .",
     "assets": "python3 tools/prep_assets.py",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && electron-builder --mac",
+    "package:dir": "npm run build && electron-builder --mac dir",
+    "install-app": "npm run package:dir && rm -rf /Applications/Threadlands.app && cp -R release/mac-arm64/Threadlands.app /Applications/"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.312",
@@ -59,5 +61,12 @@
       ],
       "category": "Development"
     }
+  },
+  "description": "A hex map for the Claude Code sessions you already run.",
+  "author": "Steve Clark",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gamedevsteve/threadlands.git"
   }
 }

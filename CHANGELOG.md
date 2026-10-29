@@ -1,0 +1,53 @@
+# Changelog
+
+Notable changes, newest first. Dates are the day the tag was cut.
+
+This project is not published anywhere — there are no downloads and no CI.
+A release is a **tag plus an entry here**, and anyone who wants the app builds
+it themselves with `npm run package`. See [RELEASING.md](RELEASING.md).
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
+
+## [Unreleased]
+
+## [0.1.0] — 2026-10-29
+
+First version that replaces a terminal rather than demonstrating that it could.
+
+### Added
+
+- **The map.** A hex realm you pan and zoom, with the cottage at its centre.
+  Found a camp or a city on a folder, drag it to another hex, raze it — a city
+  makes you type `delete` first.
+- **The Keep.** The main process owns every Agent SDK session; the renderer
+  never touches the SDK. Sessions resume by id, so a reaped settlement wakes
+  with its transcript intact.
+- **The flag.** A settlement raises one when its governor needs permission, and
+  you answer from its panel.
+- **Permission modes** per settlement over a realm default — ask, auto, accept
+  edits, plan, never ask — cycled with `Shift`+`Tab`.
+- **A model per settlement** over a realm default, switchable mid-conversation
+  without restarting the session.
+- **Notifications** when a settlement needs you or has gone idle. Clicking one
+  focuses the app, selects that settlement and pans to it.
+- **The cottage** holds realm settings and a budget panel: what each account has
+  left against its plan windows, and when they reset.
+- **The panel.** Markdown replies, tool work between two bubbles rolled up to
+  one expandable line, exact token counts and spend, and Open Terminal.
+- **Idle reaper.** Camps go dormant after 20 minutes, cities after 120.
+- `npm run selftest` drives the whole app through its real IPC against a live
+  session and exits non-zero if any check fails.
+
+### Known limits
+
+- **Nothing fences a settlement yet.** It is scoped to a folder by `cwd` and
+  nothing stops it reading outside. Walls, grants, routes and libraries are
+  still only described in `BUILD_PLAN.md` §5.
+- **Notifications need the packaged app.** macOS refuses them to an app it has
+  not registered, so running from source they fail silently. See RELEASING.md.
+- **One account.** Profiles are plumbed through but there is no UI to add one.
+- No workers, no messengers, no diffs in the transcript.
+
+[Unreleased]: https://github.com/gamedevsteve/threadlands/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gamedevsteve/threadlands/releases/tag/v0.1.0
