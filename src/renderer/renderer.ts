@@ -758,8 +758,8 @@ function draw(): void {
       // Fixed to the cottage, just off its left edge, in the same world units
       // as the building — so he keeps his place beside it at every zoom. The
       // name plate passes over him; it is drawn later.
-      const ax = x - size * SPRITE_FRACTION - w * 0.52;
-      const feet = foot - size * 0.21;
+      const ax = x - size * SPRITE_FRACTION - w * 0.45;
+      const feet = foot - size * 0.36;
 
       ctx.save();
       ctx.globalAlpha = 0.32;
@@ -767,7 +767,8 @@ function draw(): void {
       ctx.filter = `blur(${Math.max(1, w * 0.06)}px)`;
       ctx.beginPath();
       // An ellipse the width of the figure, flat on the ground under its feet.
-      ctx.ellipse(ax, feet - h * 0.05, w * 0.42, Math.max(1.5, w * 0.14), 0, 0, Math.PI * 2);
+      // Nudged right of his centre: he stands with his weight off to one side.
+      ctx.ellipse(ax + w * 0.09, feet - h * 0.05, w * 0.42, Math.max(1.5, w * 0.14), 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
