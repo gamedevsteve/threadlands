@@ -67,15 +67,56 @@ let models: ModelChoice[] = [];
 let avatarUrl: string | null = null;
 let avatarImg: HTMLImageElement | null = null;
 
+/**
+ * The figure's own bounds inside the image.
+ *
+ * Avatars arrive padded — this one is 512x512 with the person occupying the
+ * middle 59% — so sizing and shadowing from the file's dimensions puts a shadow
+ * under empty space. Measure the opaque pixels once and draw only those.
+ */
+let avatarBox: { x: number; y: number; w: number; h: number } | null = null;
+
+function measureAvatar(img: HTMLImageElement): void {
+  avatarBox = null;
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  if (!g) return;
+  g.drawImage(img, 0, 0);
+  try {
+    const { data } = g.getImageData(0, 0, c.width, c.height);
+    let minX = c.width;
+    let minY = c.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (data[(y * c.width + x) * 4 + 3]! > 12) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX >= minX) avatarBox = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  } catch {
+    // A tainted canvas would mean no measurement; fall back to the whole image.
+  }
+  if (!avatarBox) avatarBox = { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
+}
+
 function loadAvatarImage(): void {
   if (!avatarUrl) {
     avatarImg = null;
+    avatarBox = null;
     invalidate();
     return;
   }
   const img = new Image();
-  img.onload = () => { avatarImg = img; invalidate(); };
-  img.onerror = () => { avatarImg = null; invalidate(); };
+  img.onload = () => { avatarImg = img; measureAvatar(img); invalidate(); };
+  img.onerror = () => { avatarImg = null; avatarBox = null; invalidate(); };
   img.src = avatarUrl;
 }
 /** Which collapsed runs of tool work have been opened, by settlement and index. */
@@ -707,28 +748,39 @@ function draw(): void {
     drawSprite("cottage", x, y, size, false, cottageGlow);
 
     const foot = spriteFoot("cottage", y, size);
-    if (camera.zoom >= BANNER_ALL_BELOW || cottageOpen || hoveredCottage) {
-      plates.push(() => nameplate(realm.defaults.cottageName || "You", x, foot, "#f0dcae", "#3a2a12"));
+
+    // You, standing beside your own door: left of the cottage, clear of its
+    // art, and drawn here with the sprites so the name plate passes in front
+    // of you rather than the other way round.
+    if (avatarImg && avatarBox) {
+      const h = size * 1.1;
+      const w = h * (avatarBox.w / avatarBox.h);
+      // Stand just clear of the name plate's left edge rather than at a fixed
+      // distance from the cottage. The plate is sized in screen pixels and the
+      // cottage in world units, so any world-space offset buries him at one
+      // zoom or strands him at another.
+      const ax = x - (BANNER_WIDTH * bannerScale()) / 2 - w * 0.55;
+      const feet = foot + size * 0.04;
+
+      ctx.save();
+      ctx.globalAlpha = 0.32;
+      ctx.fillStyle = "#000";
+      ctx.filter = `blur(${Math.max(1, w * 0.06)}px)`;
+      ctx.beginPath();
+      // An ellipse the width of the figure, flat on the ground under its feet.
+      ctx.ellipse(ax, feet - h * 0.012, w * 0.42, Math.max(1.5, w * 0.15), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.drawImage(
+        avatarImg,
+        avatarBox.x, avatarBox.y, avatarBox.w, avatarBox.h,
+        ax - w / 2, feet - h, w, h,
+      );
     }
 
-    // You, standing outside your own door — queued after the name plate so you
-    // stand in front of it rather than behind. The plate is wider than the
-    // cottage, so anything at ground level is otherwise covered by it.
-    if (avatarImg) {
-      plates.push(() => {
-        const h = size * 1.15;
-        const w = h * (avatarImg!.width / avatarImg!.height);
-        const ax = x - size * 0.82;
-        const feet = foot + size * 0.06;
-        ctx.save();
-        ctx.globalAlpha = 0.3;
-        ctx.fillStyle = "#000";
-        ctx.beginPath();
-        ctx.ellipse(ax, feet - h * 0.02, w * 0.38, h * 0.055, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-        ctx.drawImage(avatarImg!, ax - w / 2, feet - h, w, h);
-      });
+    if (camera.zoom >= BANNER_ALL_BELOW || cottageOpen || hoveredCottage) {
+      plates.push(() => nameplate(realm.defaults.cottageName || "You", x, foot, "#f0dcae", "#3a2a12"));
     }
   }
 

@@ -35,6 +35,10 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Changed
 
+- The avatar stands beside the cottage rather than over it, behind the name
+  plate rather than in front, and its shadow is sized from the figure itself.
+  Avatars arrive padded — a 512px square with the person in the middle 59% —
+  so measuring the file's dimensions put a shadow under empty space.
 - The cottage reads like a settlement's details: capitalised labels, one setting
   per field, a hairline between each.
 - The map tool rail sits at the top right rather than centred, and its buttons
