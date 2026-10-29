@@ -62,6 +62,8 @@ let budgetsLoading = false;
 let models: ModelChoice[] = [];
 /** Which collapsed runs of tool work have been opened, by settlement and index. */
 const expandedRuns = new Set<string>();
+/** Whether the details sheet is slid out over the transcript. */
+let detailsOpen = false;
 let razeArmed: string | null = null;
 let razeTyped = "";
 
@@ -961,6 +963,7 @@ window.addEventListener("keydown", (e) => {
 function clickHex(h: { q: number; r: number }): void {
   razeArmed = null;
   razeTyped = "";
+  detailsOpen = false;
   if (hexEq(h, realm.cottageHex)) {
     selected = null;
     founding = null;
@@ -1228,31 +1231,48 @@ function renderSettlement(s: Settlement): string {
     })
     .join("");
 
-  // The settlement's details stay put; only the transcript scrolls. Scrolling
-  // both together meant losing the name and the mode as soon as you read back.
-  return `<div class="shead">${flag}
-    <div class="row"><b>${esc(s.name)}</b><span class="muted">${esc(s.kind)} · ${esc(stateWord)}</span></div>
-    <div class="row"><span class="muted mono">${esc(s.cwd)}</span></div>
-    <div class="row"><span class="muted">account</span><span class="mono">${esc(s.profileId)}</span></div>
-    <label>Asks before acting</label>
-    <select id="s-mode">${modeOptions(
-      s.permissionMode,
-      `Realm default — ${modeLabel(realm.defaults.permissionMode)}`,
-    )}</select>
-    <p class="muted" style="font-size:11px;margin:4px 0 0">${esc(
-      modeHint(s.permissionMode ?? realm.defaults.permissionMode),
-    )} <span class="muted">· Shift+Tab cycles</span></p>
-    <label>Model</label>
-    <select id="s-model">${modelOptions(
-      s.model,
-      realm.defaults.model ? `Realm default — ${modelLabel(realm.defaults.model)}` : "Realm default",
-    )}</select>
-    <div class="row"><span class="muted">tokens</span><span class="mono">${total.toLocaleString()} (${tk.input.toLocaleString()} in · ${tk.output.toLocaleString()} out · ${tk.cacheRead.toLocaleString()} cached)</span></div>
-    <div class="row"><span class="muted">spent</span><span class="mono">$${s.costUsd.toFixed(4)}</span></div>
-    ${s.error ? `<div class="msg system">${esc(s.error)}</div>` : ""}
-    ${renderRaze(s)}
-  </div>
-  <div id="chat" class="chatscroll">${chat || '<div class="muted">Nothing said yet.</div>'}</div>`;
+  // Only the name is pinned. Everything else about a settlement lives behind
+  // the info button, in a sheet that slides over the transcript — the details
+  // are worth a glance now and then, the conversation is worth the room.
+  const tint = s.state === "dormant" ? "muted" : "";
+  return `<div class="shead">
+      <div class="who">
+        <b class="${tint}">${esc(s.name)}</b>
+        <span class="muted">${esc(s.kind)} · ${esc(stateWord)}</span>
+      </div>
+      <button class="infobtn${detailsOpen ? " on" : ""}" id="details-toggle"
+        title="${detailsOpen ? "Hide details" : "Show details"}" aria-expanded="${detailsOpen}">
+        <img src="./assets/info.png" alt="Details" />
+      </button>
+    </div>
+    ${flag}
+    <div class="chatwrap">
+      <div class="details${detailsOpen ? " open" : ""}" id="details">
+        <div class="kv"><span class="k">Folder</span><span class="v mono">${esc(s.cwd)}</span></div>
+        <div class="kv"><span class="k">Account</span><span class="v mono">${esc(s.profileId)}</span></div>
+        <div class="kv"><span class="k">Tokens</span><span class="v mono">${total.toLocaleString()}</span></div>
+        <div class="kv sub"><span class="k">In · Out · Cached</span><span class="v mono">${tk.input.toLocaleString()} · ${tk.output.toLocaleString()} · ${tk.cacheRead.toLocaleString()}</span></div>
+        <div class="kv"><span class="k">Spent</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>
+        <div class="kv"><span class="k">Founded</span><span class="v">${esc(new Date(s.foundedAt).toLocaleDateString())}</span></div>
+
+        <label>Asks before acting</label>
+        <select id="s-mode">${modeOptions(
+          s.permissionMode,
+          realm.defaults.permissionMode ? `Realm default — ${modeLabel(realm.defaults.permissionMode)}` : "Realm default",
+        )}</select>
+        <p class="muted hint">${esc(modeHint(s.permissionMode ?? realm.defaults.permissionMode))} · Shift+Tab cycles</p>
+
+        <label>Model</label>
+        <select id="s-model">${modelOptions(
+          s.model,
+          realm.defaults.model ? `Realm default — ${modelLabel(realm.defaults.model)}` : "Realm default",
+        )}</select>
+
+        ${s.error ? `<div class="msg system">${esc(s.error)}</div>` : ""}
+        <div class="razerow">${renderRaze(s)}</div>
+      </div>
+      <div id="chat" class="chatscroll">${chat || '<div class="muted">Nothing said yet.</div>'}</div>
+    </div>`;
 }
 
 function render(): void {
@@ -1352,6 +1372,11 @@ function render(): void {
   pane.innerHTML = renderSettlement(s);
   composer.classList.remove("hidden");
   hint.textContent = s.name;
+  pane.querySelector("#details-toggle")?.addEventListener("click", () => {
+    detailsOpen = !detailsOpen;
+    render();
+  });
+
   pane.querySelectorAll<HTMLButtonElement>(".runtoggle").forEach((b) => {
     b.addEventListener("click", () => {
       const key = b.dataset.run;
@@ -1480,6 +1505,11 @@ function cycleMode(): void {
 }
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && detailsOpen) {
+    detailsOpen = false;
+    render();
+    return;
+  }
   if (e.key === "Tab" && e.shiftKey && selected) {
     e.preventDefault();
     cycleMode();

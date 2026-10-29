@@ -13,6 +13,11 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Changed
 
+- A settlement's panel pins only its **name**, with an info button beside it.
+  Everything else — folder, account, tokens, spend, model, permission mode,
+  Raze — slides out over the transcript as a sheet, and `Esc` closes it. Labels
+  are capitalised with a hairline between rows, and Raze sits at the foot,
+  right-aligned and red.
 - A settlement's details stay put while only its transcript scrolls. Scrolling
   both together meant losing the name, the mode and the spend as soon as you
   read back through a conversation. On a short window the details scroll

@@ -384,6 +384,32 @@ def prepare_icon(size: int = 1024) -> None:
         print(f"  !! iconutil failed: {e}")
 
 
+def prepare_info_icon(size: int = 128) -> None:
+    """The panel's info button. Same shape treatment as the app icon."""
+    src = SRC / "info.png"
+    if not src.exists():
+        return
+    img = Image.open(src).convert("RGB")
+    px = img.load()
+    w, h = img.size
+    xs, ys = [], []
+    for y in range(0, h, 2):
+        for x in range(0, w, 2):
+            r, g, b = px[x, y]
+            if r + g + b > 70:
+                xs.append(x)
+                ys.append(y)
+    if xs:
+        img = img.crop((min(xs), min(ys), max(xs) + 1, max(ys) + 1))
+    side = max(img.size)
+    square = Image.new("RGB", (side, side), (0, 0, 0))
+    square.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
+    icon = square.resize((size, size), Image.LANCZOS).convert("RGBA")
+    icon.putalpha(squircle_mask(size))
+    icon.save(OUT / "info.png", optimize=True)
+    print(f"  info.png -> info.png  {size}x{size}")
+
+
 def prepare_parchment(width: int = 887) -> None:
     """The side panel's backdrop. Kept at its native width; webp for the size."""
     src = SRC / "parchment.png"
@@ -470,6 +496,7 @@ def main() -> int:
     prepare_banner()
     prepare_parchment()
     prepare_icon()
+    prepare_info_icon()
     return 0
 
 
