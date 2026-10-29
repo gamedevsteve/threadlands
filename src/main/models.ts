@@ -17,11 +17,15 @@ function silentInput(): AsyncIterable<SDKUserMessage> {
   })();
 }
 
-export async function listModels(configDir: string | null): Promise<ModelChoice[]> {
+export async function listModels(
+  configDir: string | null,
+  executable?: string,
+): Promise<ModelChoice[]> {
   const q = query({
     prompt: silentInput(),
     options: {
       persistSession: false,
+      ...(executable ? { pathToClaudeCodeExecutable: executable } : {}),
       ...(configDir ? { env: { ...process.env, CLAUDE_CONFIG_DIR: configDir } } : {}),
     },
   }) as Query;

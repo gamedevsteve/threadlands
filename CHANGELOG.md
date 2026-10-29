@@ -23,6 +23,16 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   to the cottage. The camera eases rather than snapping, and a notification you
   click now glides to its settlement the same way.
 
+### Fixed
+
+- **The packaged app could not start a session at all.** The SDK spawns the
+  Claude CLI as a child process and resolves its path relative to its own
+  module, which inside a packaged app is a path *within* `app.asar`. Electron
+  remaps asar paths for file reads but not for `spawn`, so every session, the
+  model list and the budget probe failed with `ENOTDIR` — while the app itself
+  launched normally. The CLI is now unpacked and the SDK is handed its real
+  path.
+
 ### Changed
 
 - The cottage reads like a settlement's details: capitalised labels, one setting

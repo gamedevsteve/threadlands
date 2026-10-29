@@ -60,7 +60,10 @@
         "AppImage"
       ],
       "category": "Development"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/@anthropic-ai/**"
+    ]
   },
   "description": "A hex map for the Claude Code sessions you already run.",
   "author": "Steve Clark",

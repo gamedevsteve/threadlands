@@ -98,6 +98,7 @@ export class Supervisor {
     private readonly maxBudgetUsd: () => number,
     private readonly defaultModel: () => string | null,
     private readonly defaultMode: () => PermissionModeValue,
+    private readonly executable: string | undefined,
   ) {}
 
   /** Send a prompt, spawning or resuming the governor as needed. */
@@ -114,6 +115,7 @@ export class Supervisor {
         this.maxBudgetUsd(),
         s.model ?? this.defaultModel(),
         s.permissionMode ?? this.defaultMode(),
+        this.executable,
       );
       this.governors.set(id, g);
       g.start();
@@ -233,6 +235,7 @@ class Governor {
     private readonly maxBudgetUsd: number,
     private model: string | null,
     private mode: PermissionModeValue,
+    private readonly executable: string | undefined,
   ) {}
 
   push(text: string): void {
@@ -291,6 +294,7 @@ class Governor {
         ...(this.s.sessionId ? { resume: this.s.sessionId } : {}),
         canUseTool: this.canUseTool,
         permissionMode: this.mode,
+        ...(this.executable ? { pathToClaudeCodeExecutable: this.executable } : {}),
         ...(this.mode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
         maxBudgetUsd: this.maxBudgetUsd,
         ...(this.model ? { model: this.model } : {}),

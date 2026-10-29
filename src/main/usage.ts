@@ -19,12 +19,17 @@ function silentInput(): AsyncIterable<SDKUserMessage> {
   })();
 }
 
-export async function probeAccount(profileId: string, configDir: string | null): Promise<AccountBudget> {
+export async function probeAccount(
+  profileId: string,
+  configDir: string | null,
+  executable?: string,
+): Promise<AccountBudget> {
   const base = { profileId, checkedAt: Date.now() };
   const q = query({
     prompt: silentInput(),
     options: {
       persistSession: false,
+      ...(executable ? { pathToClaudeCodeExecutable: executable } : {}),
       // A null configDir means the ambient login; setting the variable at all
       // would make Claude Code miss the Keychain entry. See realm.profileDir.
       ...(configDir ? { env: { ...process.env, CLAUDE_CONFIG_DIR: configDir } } : {}),

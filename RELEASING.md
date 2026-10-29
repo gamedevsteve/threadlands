@@ -41,6 +41,13 @@ npm run install-app        # build and copy into /Applications
 `release/` is gitignored — artifacts belong to the machine that made them, not
 the repo.
 
+### Check the packaged build can actually work
+
+Launching is not evidence. A packaged app starts, draws and notifies perfectly
+well while being unable to run a single session — the SDK spawns the Claude CLI
+as a child process, and a path inside `app.asar` cannot be spawned. **Open a
+settlement and send one message** before calling a build good.
+
 ### Two things only the packaged app has
 
 - **Notifications.** macOS will not grant them to an app it has not registered,

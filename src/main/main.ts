@@ -38,6 +38,29 @@ app.setName("Threadlands");
 // Windows groups notifications by this; without it they show as unattributed.
 app.setAppUserModelId("com.hatfieldmedia.threadlands");
 
+/**
+ * Where the bundled Claude CLI actually is on disk.
+ *
+ * The SDK spawns it as a child process, and works out its path relative to its
+ * own module — which, in a packaged app, is a path *inside* app.asar. Electron
+ * remaps asar paths for file reads but not for spawn, so that fails with
+ * ENOTDIR however much of the archive is unpacked. Point the SDK at the real
+ * file instead. Returns undefined when it cannot be found, leaving the SDK to
+ * resolve it the usual way.
+ */
+function claudeExecutable(): string | undefined {
+  const base = app.getAppPath().replace(/app\.asar$/, "app.asar.unpacked");
+  const exe = process.platform === "win32" ? "claude.exe" : "claude";
+  const p = join(
+    base,
+    "node_modules",
+    "@anthropic-ai",
+    `claude-agent-sdk-${process.platform}-${process.arch}`,
+    exe,
+  );
+  return existsSync(p) ? p : undefined;
+}
+
 let win: BrowserWindow | null = null;
 let store: RealmStore;
 let sup: Supervisor;
@@ -173,6 +196,7 @@ app.whenReady().then(() => {
     () => store.defaults.maxBudgetUsd,
     () => store.defaults.model,
     () => store.defaults.permissionMode,
+    claudeExecutable(),
   );
 
   ipcMain.handle("getRealm", () => store.toRealm());
@@ -329,7 +353,7 @@ app.whenReady().then(() => {
   const refreshBudgets = (): Promise<AccountBudget[]> => {
     if (budgetRun) return budgetRun;
     const ids = [...new Set(["default", ...store.profiles, ...[...store.settlements.values()].map((s) => s.profileId)])];
-    budgetRun = Promise.all(ids.map((p) => probeAccount(p, store.profileDir(p))))
+    budgetRun = Promise.all(ids.map((p) => probeAccount(p, store.profileDir(p), claudeExecutable())))
       .then((rows) => {
         budgetCache = rows;
         win?.webContents.send("budgets", rows);
@@ -370,7 +394,7 @@ app.whenReady().then(() => {
   let modelRun: Promise<ModelChoice[]> | null = null;
   const loadModels = (): Promise<ModelChoice[]> => {
     if (modelCache.length) return Promise.resolve(modelCache);
-    modelRun ??= listModels(store.profileDir("default"))
+    modelRun ??= listModels(store.profileDir("default"), claudeExecutable())
       .then((rows) => {
         modelCache = rows;
         win?.webContents.send("models", rows);
