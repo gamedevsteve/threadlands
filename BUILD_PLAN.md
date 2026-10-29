@@ -109,7 +109,7 @@ interface Grant {
 // Fixtures are tiles with no cwd, no session and no governor. Keeping them out of
 // Settlement is what stops every session field becoming nullable for two special cases.
 type Fixture =
-  | { kind: "cottage"; hex: Hex; defaults: RealmDefaults }
+  | { kind: "cottage"; hex: Hex; defaults: RealmDefaults; budgets: AccountBudget[] }
   | { kind: "post";    hex: Hex };
 
 interface RealmDefaults {
@@ -167,7 +167,8 @@ enforces when routes are drawn, in §5.
 | `idle` | Lanterns lit | After the idle timeout |
 | `error` | Banner at half-mast | On acknowledgement |
 
-Persist the realm to `~/Library/Application Support/Threadlands/realm.json`. It holds
+Persist the realm to Electron's `app.getPath("userData")` — `~/Library/Application Support/`
+on macOS, `%APPDATA%` on Windows. Never hard-code either; see §12. It holds
 settlements only — **never transcripts**, which already live in `~/.claude/projects/` and
 are read through the SDK. Two sources of truth for history would be the first thing to rot.
 
@@ -224,9 +225,13 @@ const canUseTool: CanUseTool = async (toolName, input, { signal }) => {
 };
 ```
 
-Two consequences worth designing around. The promise can sit unresolved for hours, so
+Three consequences worth designing around. The promise can sit unresolved for hours, so
 persist enough of the request to show it after an app restart and resolve stale ones as
-denied. And `signal` aborts — wire it so a razed settlement doesn't leak a pending resolver.
+denied. `signal` aborts — wire it so a razed settlement doesn't leak a pending resolver.
+
+And **this callback must never throw.** An exception inside it takes the whole session down,
+not just the one tool call. Wrap the body and degrade to a deny on any failure. Also confirmed
+in the spike, where a broken prompt killed a healthy session.
 
 ### Reaping and resuming
 
@@ -251,11 +256,26 @@ const q = query({
   },
 });
 
-for await (const msg of q) supervisor.ingest(s.id, msg);
+// Hold ONE iterator for the life of the session and pull from it by hand.
+const it = q[Symbol.asyncIterator]();
+for (;;) {
+  const { value, done } = await it.next();
+  if (done) break;
+  supervisor.ingest(s.id, value);
+}
 ```
 
 One loop per settlement. `ingest` is the only place SDK message types are translated into
 Threadlands events.
+
+**Do not write that loop as `for await (const msg of q) { ... break }`.** Exiting a `for await`
+early calls `.return()` on the iterator, which closes the Query and ends the session. Anything
+that consumes a turn at a time — which the supervisor does — must hold a single long-lived
+iterator and call `.next()` itself. Confirmed in the Phase 0 spike, where it silently killed
+the session after the first turn and looked like an SDK fault.
+
+The `init` system message is re-emitted on later turns with the same id, so treat it as
+informational and take the session id from the most recent `result`.
 
 ### Accounts
 
@@ -280,6 +300,72 @@ building.
   Seed each profile on creation, or symlink the files you want shared.
 
 Profile is also the banner. Work cities fly one crest, personal another, legible at map zoom.
+
+Profile isolation is **verified**. A fresh `CLAUDE_CONFIG_DIR` does *not* inherit the macOS
+Keychain login: it reports `subscription_type: null`, `rate_limits_available: false`. Profiles
+are genuinely separate accounts, and the directory gets its own `.claude.json`, `sessions/`
+and `backups/`. The probe below is how you read each one.
+
+### The cottage panel: what each account has left
+
+Verified working. The `Query` object carries a control method that returns the structured data
+behind `/usage` — plan, window utilisation, reset timestamps — and it is **free and fast**:
+boot a session, never send a prompt, ask, tear down. Measured at **490ms and $0.0000**, because
+no prompt means no model call. `spike/usage-probe.ts` is the working implementation.
+
+```ts
+const q = query({ prompt: silentInput(), options: { persistSession: false } }) as Query;
+// drain the stream in the background, then:
+const u = await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+  skipBehaviors: true,   // skips a 7-day transcript scan; for a usage meter, always pass this
+});
+```
+
+Three mechanics that are not obvious:
+
+- **No prompt is needed, and no `init` either.** The control channel answers in ~500ms, before
+  any `system/init` arrives. The probe must still drain the message stream concurrently or the
+  reply never lands.
+- **Teardown must be fire-and-forget.** `await it.return()` hangs forever, because the silent
+  input generator is parked on a promise that never settles. `void it.return?.()`. This is the
+  third variant of the same iterator-lifecycle trap as §4's `break` bug — the Query's iterator
+  protocol is where this project's sharp edges live.
+- **The method name is a warning label.** It is explicitly experimental and the name *will*
+  change. Wrap it in exactly one adapter — `probeAccount()` — so a rename is a one-line fix.
+
+**Render the server's rows, never your own.** The response carries a `limits[]` array whose rows
+are the server's: `kind` ('session', 'weekly_all', 'weekly_scoped'), `group`, `percent`,
+`resets_at`, `severity` ('normal' | 'warning' | 'critical'), `is_active`, and an optional `scope`
+naming a model or surface. Classify on `kind`, colour on the server's `severity`, and order as
+sent. Alongside `limits[]` sit ~30 named keys, most null — several are unreleased meters with
+codename keys. Hardcoding `five_hour` / `seven_day` means the panel silently goes stale the week
+a new meter ships; reading `limits[]` means it doesn't.
+
+Also worth surfacing on the panel:
+
+- `seven_day_breakdown.rows` — where the weekly window went, by surface (Claude Code / Chats /
+  Cowork / Other). On a Threadlands realm this will read ~100% Claude Code, which is the point:
+  it tells you Threadlands *is* your usage.
+- `spend` — extra-usage credits in real money (`amount_minor` + `exponent`, so divide), with
+  `enabled` and `percent`. Only meaningful once credits are switched on.
+- `rate_limits_available: false` — an API-key or Bedrock/Vertex profile has no windows at all.
+  That panel shows cumulative dollars from `total_cost_usd` instead. The two profile kinds need
+  two different cottage rows, and only the API-key kind is a real bill.
+
+**There is no token count.** Plan limits come back as percentages and reset timestamps, not
+"412,000 tokens left" — Anthropic does not publish a token balance for subscription plans, so
+the cottage cannot show one. The honest panel reads *"session 43%, resets 8:50 PM · week 28%,
+resets Fri"*. Per-settlement token counts are a separate thing and do exist: `modelUsage` on each
+`result` message gives exact input/output/cache tokens per model, which is how a settlement's own
+meter gets filled.
+
+**Poll, don't stream — but listen too.** There is also a push surface: a `rate_limit_event`
+message (`SDKRateLimitInfo` — `status`, `utilization`, `resetsAt`, `rateLimitType`, plus overage
+fields) arrives on a working session's stream when its limits change. Use both: the Keep polls
+each profile on a timer for the cottage panel, and promotes a `status: 'rejected'` or
+`'allowed_warning'` event from any settlement straight to the map, since that is the moment a
+settlement is about to stall. A rejected status with `rateLimitType: 'seven_day'` should visibly
+freeze every settlement on that profile — they are all about to fail.
 
 ### The provider seam
 
@@ -428,7 +514,7 @@ write the fix with full context, in the one settlement where writes are allowed.
 never has to open.
 
 Keep it to one message type in one direction. A general channel between settlements is the
-agent-to-agent tar pit wearing a hat, and it is on the §11 list for good reason.
+agent-to-agent tar pit wearing a hat, and it is on the §12 list for good reason.
 
 **The post is where they wait.** Its tile carries a count, legible from across the map, so
 pending work has a place rather than a badge buried in a panel. Dispatch history lives there
@@ -436,10 +522,12 @@ too: what a settlement has sent and received, in one list.
 
 The cottage is a different thing entirely — realm settings. Default permission mode, budget
 caps, idle timeouts, and the agent rules seeded into every profile as `CLAUDE.md`. Rules change
-monthly and dispatches arrive daily, so the two do not belong on one tile.
+monthly and dispatches arrive daily, so the two do not belong on one tile. Clicking it also opens the
+budget panel — every profile's windows, utilisation and reset times, polled live (§4). That is
+the one screen that answers "can I start another city right now?".
 
 A **postmaster** — an agent triaging the queue for you — is the obvious next thought and is on
-the §11 list. The point of the gate is that *you* read the finding; an agent that summarises
+the §12 list. The point of the gate is that *you* read the finding; an agent that summarises
 puts a judgement between you and the thing you asked to review. If volume ever demands one,
 have it group and label, never collapse the finding itself.
 
@@ -497,6 +585,18 @@ already know how to write.
 
 **Gate:** the resumed session remembers the first conversation.
 
+**Status: passed.** `spike/phase0.ts`, six of six checks — spawned in a given cwd, raised the
+flag on a Write, wrote the file, captured the session id, was killed, and the resumed session
+recalled both the file and the conversation. Run it with `npm run spike` to answer the flag
+yourself, or `npm run spike -- --yes` to auto-approve. Roughly $0.28 a run on Opus, which is a
+useful first data point for §11.
+
+The walls stage (`--walls`) is written but unverified; it is the sandbox check §5 asks for.
+
+A seventh thing fell out of the same spike: `spike/usage-probe.ts` (`npm run usage`) reads any
+account's remaining budget and reset times in ~490ms for $0.00. See §4's cottage-panel notes.
+It also proved profile isolation works, which §4's Accounts section had only assumed.
+
 ### Phase 1 — The Keep · 3–4 evenings
 
 Electron shell. The supervisor, the realm store, the IPC contract. Drive it from a plain
@@ -522,6 +622,24 @@ one reaped and resumed, one fenced settlement refusing a read outside its folder
 consumer that can read a library but is refused when it tries to edit it — by the file tools
 and through Bash. State survives an app restart.
 
+**Status: core built.** `src/main/` is the Keep — `supervisor.ts` (one `Governor` per
+settlement, all three iterator traps handled), `realm.ts` (a JSON realm in `userData`, chat
+capped on disk because the SDK's own history is the real archive), `usage.ts` (the budget
+probe), and `main.ts` (IPC, the 30-second idle reaper, the terminal opener). The renderer never
+imports the SDK; `src/shared/types.ts` is the whole contract.
+
+Still open from this phase's gate: multiple accounts in anger, the grant list and route
+compiler, the many-workers model, the driver interface, and the empty MCP server. Those are
+§5's walls and §4's provider seam — deliberately not built yet, because nothing above them
+exists to constrain them.
+
+**A found that cost an hour:** setting `CLAUDE_CONFIG_DIR` *at all* — even to the real
+`~/.claude` — makes Claude Code miss its Keychain entry on macOS, and the session comes up
+`Not logged in · Please run /login` with zero tokens spent. The default profile must leave the
+variable unset entirely. §4's Accounts snippet showed the override unconditionally; it is
+wrong for the default profile and `realm.profileDir()` now returns `null` for it. Profiles
+other than default are unaffected, which is why the isolation test still passed.
+
 ### Phase 2 — The map · 3–4 evenings
 
 Canvas 2D. Axial hex grid, flat-top. Pan, zoom, click-to-hex. The cottage pinned at the
@@ -538,6 +656,88 @@ cottage; `dormant` can be a canvas filter rather than its own art. Worker count 
 small tally on the tile — tents pitched outside the walls — rather than as separate
 clickable sprites, which are fiddly at map zoom and collide with real settlements on
 neighbouring hexes.
+
+**Status: built.** `src/renderer/` — `hex.ts` (flat-top axial, cube rounding, spiral) and
+`renderer.ts` (grid, pan, zoom, click-to-hex, founding, the chat panel, the flag, the cottage
+budget panel). Three corrections to what this section assumed:
+
+- **The art had no alpha at all.** The source PNGs are opaque with white backgrounds, so every
+  sprite drew as a white box and the white hex corners painted over their neighbours, which
+  read as gaps in the grid. `tools/prep_assets.py` (`npm run assets`) flood-fills the
+  background from the border — so white *inside* the art survives — then crops to content and
+  downscales. Do not feather the cut edge: a hard alpha ring haloes where tiles overlap, and
+  the LANCZOS downscale already antialiases it.
+- **The ground is one tileable texture with patch sprites scattered over it.** Variants are
+  baked as transparent, soft-edged blobs in a range of sizes, not as versions of the ground
+  tile, and placed on a jittered scatter unrelated to the texture lattice. Three earlier
+  attempts each failed on the same point and are worth not repeating: baking variants *into*
+  tiles confines every patch to exactly one cell, so patches are all one size and can never
+  join; one mask per variant makes every instance of it the identical blob; and clustering with
+  smooth value noise segregates the variants into regions *and* skews their frequencies, since
+  value noise bunches around the middle. Free-standing sprites solve all three — size varies,
+  patches overlap and merge, and different variants mingle.
+- **The grid is not drawn at all any more.** Per-hex tile sprites were replaced by one tileable
+  ground texture, repeated in world space and clipped to the union of every hex in the realm,
+  with only the hovered hex outlined. That union is cached as a `Path2D` and reused across
+  zoom steps. Do not *stroke* that path to get a shoreline — it strokes every subpath in it,
+  which draws back the whole lattice you just removed. A blurred fill of the same path, offset
+  downward before the clip, gives the island its edge instead.
+- Were the grid ever drawn as tiles again: draw each at the true hex footprint, `2s × √3s`,
+  not at the art's own aspect. The supplied art is within ~3% of a regular hex, and forcing the
+  geometry is what makes it tessellate.
+- **Sprites at ~1.15× the hex width**, not the 2× this section guessed. At 2× a settlement
+  covers its neighbours entirely.
+
+The needs-you sprite swap is still owed art, so the flag is drawn on canvas for now — a pole
+and a banner above the tile, with a red ring. That is enough to read at zoom, and swapping in
+a sprite later changes one function.
+
+### Keeping the map cheap
+
+Four things, found by measuring rather than guessing — `window.__threadlands.perf` has switches
+for bisecting a frame, and frame *rate* is the only honest measure, because canvas work is
+queued on the GPU and wall-clock around the JS reports near zero.
+
+- **One render loop, owned by one place.** `draw()` used to schedule its own next frame, and
+  `resize()` called `draw()` — so every window or splitter resize started another permanent
+  loop and they multiplied until the map crawled. The loop is now started once and nothing else
+  may schedule a frame.
+- **Draw on demand.** The map is still most of the time: a frame is painted when something
+  changes, while a settlement is animating, or on a 500ms heartbeat so a missed `invalidate`
+  can never strand a stale map. Idle went 25fps to 120.
+- **Never fill more than the viewport.** The ground filled the realm's whole extent, which at
+  full zoom is a fill of over a hundred megapixels per frame. The island's blurred shadow is
+  also skipped entirely unless the shore is actually on screen — a blur costs by area.
+- **Resize inside the render loop, never beside it.** Setting `canvas.width` clears the canvas,
+  so a resize scheduled in its own animation frame can land *after* the frame that was just
+  painted and wipe it. Two independent `requestAnimationFrame` callbacks have no defined order
+  between them. The symptom is a map that flashes while a splitter is dragged, and the fix is
+  to make the loop do the resize immediately before it draws.
+- **Cache the ground, but not on every resize.** It depends only on zoom and position, so it is
+  painted into an offscreen canvas covering the viewport plus 40% and blitted; panning went
+  28fps to 99. Dropping that cache inside `resize()` undid all of it, because a splitter drag
+  resizes every frame — the staleness check already covers a viewport leaving the cached rect.
+
+### The self test
+
+`npm run selftest` drives the real app through its real IPC: founds a camp in a scratch
+folder, sends a prompt that must use a tool, waits for the flag, answers it, and checks the
+file landed. It screenshots each stage and exits non-zero on failure. It spends about $0.20,
+which is the price of knowing the map, the Keep and a live session agree.
+
+```
+✓ camp founded and on the map      ✓ turn finished
+✓ settlement went to work          ✓ session id captured for resume
+✓ flag went up for permission      ✓ tokens counted
+```
+
+The window can screenshot itself (`THREADLANDS_SHOT`, plus `THREADLANDS_SHOT_JS` to drive the
+map first through `window.__threadlands`). Give the page a beat to paint before capturing —
+`capturePage` will otherwise hand back the frame from before your script ran.
+
+**One performance note for §11's cost worry:** the budget probe that takes ~490ms from `tsx`
+takes several seconds inside Electron. The Keep now probes at startup and every two minutes,
+caches the rows, and pushes them at the renderer, so the cottage opens with numbers on it.
 
 **Gate:** found, place and click into a settlement entirely from the map.
 
@@ -591,7 +791,56 @@ dispatch waits, and the fix lands in the library's own settlement without the wa
 
 ---
 
-## 8. Hex math
+## 8. Platforms
+
+Electron ports cleanly and nothing in §2 through §7 is Mac-specific. One feature does not
+travel, and a handful of paths need care.
+
+### Walls do not exist on native Windows
+
+Sandboxing runs on macOS (Seatbelt), Linux and WSL2 (bubblewrap). **Native Windows has no
+sandbox**, so the Bash half of every wall in §5 is simply absent there.
+
+The default behaviour makes it worse: when the sandbox can't start, Claude Code runs commands
+*unsandboxed and silently*. A Windows settlement would look walled and not be. Nor can you
+force it — `sandbox.failIfUnavailable: true` on Windows makes Claude Code exit at startup.
+
+What survives on Windows is the permission half: `deny` rules still fence Read, Edit and Write,
+so a library is protected from the file tools. What is lost is everything downstream of a
+broad `Bash` entry in `allowedTools`, which can write to a library through the shell with
+nothing to stop it.
+
+Three ways to take it:
+
+1. **Mac first, Windows left open.** Keep every path platform-agnostic from Phase 1 and treat
+   walls as a macOS and Linux feature. *Recommended.*
+2. **Ship Windows with walls visibly degraded** — drawn at half height on the tile, and said
+   plainly in the founding dialog. Weaker, but not dishonest.
+3. **Require WSL2 on Windows** for any walled settlement. Complete, but `cwd` becomes
+   `/mnt/c/...`, profiles live in the WSL filesystem, and you maintain two path worlds.
+
+### The smaller deltas
+
+| | macOS | Windows |
+|---|---|---|
+| Realm file | `~/Library/Application Support/` | `%APPDATA%` — use `app.getPath("userData")` |
+| Session store | `~/.claude/projects/` | `%USERPROFILE%\.claude\projects\` |
+| Open terminal | `open -a Terminal <cwd>` | `wt.exe -d <cwd>`, falling back to `start cmd /K` |
+| `settings.local.json` | at the repository root | stays beside `settings.json` |
+| Network paths | n/a | UNC paths can't be working directories; map a drive letter |
+
+Untested and worth an early spike if Windows ever becomes real: permission rules take `//` for
+absolute paths, and how that meets a `C:\` drive letter is not something to assume.
+
+### Distribution
+
+For your own machine, skip signing entirely. If the app ever reaches someone else, macOS wants
+notarization through an Apple Developer account and Windows throws SmartScreen warnings without
+a code-signing certificate. Neither is worth doing before Phase 4.
+
+---
+
+## 9. Hex math
 
 Flat-top axial, since the tile art is flat-top. Worth writing down once to avoid
 relitigating it.
@@ -621,7 +870,7 @@ for sprites is a sort on `(r, q)` ascending.
 
 ---
 
-## 9. Decisions to lock before Phase 1
+## 10. Decisions to lock before Phase 1
 
 - **Settings inheritance.** `settingSources: ["user", "project"]` means settlements honour
   your existing `CLAUDE.md` files and permissions. Almost certainly what you want — but it
@@ -638,7 +887,8 @@ for sprites is a sort on `(r, q)` ascending.
 - **Default fencing.** `blockReadsOutsideWorkingDirectories` on for every new settlement, with
   grants as the deliberate exception. Starting open and tightening later never happens.
 - **Sandbox on by default.** It is the only thing holding the Bash half of a wall. Decide what
-  happens when it can't start — `failIfUnavailable`, or degrade and mark the tile.
+  happens when it can't start — `failIfUnavailable`, or degrade and mark the tile. This is a
+  platform decision as much as a policy one; see §12.
 - **Promotion to library.** Whether any settlement can be declared a library later, which
   retroactively makes every existing route into it read-only. Probably yes, with a dialog
   naming the routes it would change.
@@ -652,7 +902,7 @@ for sprites is a sort on `(r, q)` ascending.
 
 ---
 
-## 10. Where this gets hard
+## 11. Where this gets hard
 
 **Process supervision.** Many concurrent sessions, each able to die, hang or leak a pending
 permission resolver. Not conceptually hard — but this is where the bugs will live, and they
@@ -670,7 +920,7 @@ part is also the cheap part, which is a good property for a project you'll build
 
 ---
 
-## 11. Not in version one
+## 12. Not in version one
 
 Written down so they stop being tempting.
 

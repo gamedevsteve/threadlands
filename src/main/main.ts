@@ -1,0 +1,376 @@
+/**
+ * Threadlands — Electron main. Window, IPC, the idle reaper.
+ */
+import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from "electron";
+import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { RealmStore } from "./realm.js";
+import { Supervisor } from "./supervisor.js";
+import { probeAccount } from "./usage.js";
+import { listModels } from "./models.js";
+import type {
+  AccountBudget,
+  ModelChoice,
+  PermissionModeValue,
+  RealmDefaults,
+  Settlement,
+  SettlementKind,
+} from "../shared/types.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Name the app before anything reads it.
+ *
+ * In development the Dock and the menu bar still say "Electron": those come
+ * from the Electron binary's own bundle, and only a packaged build (npm run
+ * package) sets CFBundleName. This does fix the name in dialogs, notifications
+ * and the menu items below.
+ *
+ * Renaming also moves app.getPath("userData"), which would strand an existing
+ * realm, so the data path is pinned to where it has always been.
+ */
+app.setPath("userData", join(app.getPath("appData"), "threadlands"));
+app.setName("Threadlands");
+
+let win: BrowserWindow | null = null;
+let store: RealmStore;
+let sup: Supervisor;
+
+/** Push a settlement snapshot at the map. The renderer holds no other truth. */
+function emit(s: Settlement): void {
+  win?.webContents.send("settlement", s);
+}
+
+function createWindow(): void {
+  win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    backgroundColor: "#1b2a30",
+    ...(process.platform === "linux" ? { icon: join(here, "assets", "appicon.png") } : {}),
+    titleBarStyle: "hiddenInset",
+    webPreferences: { preload: join(here, "preload.cjs"), sandbox: false },
+  });
+  win.loadFile(join(here, "index.html"));
+
+  // Keep the top bar's button honest when the window is zoomed from anywhere
+  // else — a double click on the bar, the green light, or a menu command.
+  const tellRenderer = () =>
+    win?.webContents.send("windowState", win.isMaximized() || win.isFullScreen());
+  win.on("maximize", tellRenderer);
+  win.on("unmaximize", tellRenderer);
+  win.on("enter-full-screen", tellRenderer);
+  win.on("leave-full-screen", tellRenderer);
+
+  // Dev hook: THREADLANDS_SHOT=<path> captures the window once it has settled
+  // and quits. Lets the map be verified without a human at the mouse.
+  const shot = process.env.THREADLANDS_SHOT;
+  if (shot) {
+    win.webContents.once("did-finish-load", () => {
+      setTimeout(async () => {
+        try {
+          const js = process.env.THREADLANDS_SHOT_JS;
+          if (js) {
+            console.log("[shot-js]", JSON.stringify(await win!.webContents.executeJavaScript(js)));
+            // Let the change paint. capturePage can otherwise return the frame
+            // from before the script ran.
+            await new Promise((r) => setTimeout(r, 600));
+          }
+          const img = await win!.webContents.capturePage();
+          writeFileSync(shot, img.toPNG());
+          console.log(`[shot] ${shot}`);
+        } catch (e) {
+          console.error("[shot] failed", e);
+        }
+        app.quit();
+      }, Number(process.env.THREADLANDS_SHOT_DELAY ?? 2500));
+    });
+  }
+
+  // Dev hook: surface renderer console errors on stdout, so a broken map is
+  // visible from a terminal instead of only in devtools.
+  win.webContents.on("console-message", (e) => {
+    if (e.level === "error" || e.level === "warning") console.error(`[renderer] ${e.message}`);
+  });
+}
+
+/** Open the platform's terminal at a settlement's folder. */
+function openTerminalAt(cwd: string): void {
+  if (process.platform === "darwin") {
+    execFile("/usr/bin/open", ["-a", "Terminal", cwd], () => {});
+  } else if (process.platform === "win32") {
+    execFile("cmd", ["/c", "start", "cmd", "/K", `cd /d "${cwd}"`], () => {});
+  } else {
+    execFile("x-terminal-emulator", ["--working-directory", cwd], (err) => {
+      if (err) shell.openPath(cwd);
+    });
+  }
+}
+
+app.whenReady().then(() => {
+  // In development the Dock shows Electron's own icon; a packaged build uses
+  // build/icon.icns instead and never reaches this.
+  if (process.platform === "darwin" && !app.isPackaged) {
+    const icon = join(here, "assets", "appicon.png");
+    if (existsSync(icon)) app.dock?.setIcon(icon);
+  }
+
+  store = new RealmStore();
+  sup = new Supervisor(
+    store.settlements,
+    (s) => {
+      emit(s);
+      store.save();
+    },
+    (profileId) => store.profileDir(profileId),
+    () => store.defaults.maxBudgetUsd,
+    () => store.defaults.model,
+    () => store.defaults.permissionMode,
+  );
+
+  ipcMain.handle("getRealm", () => store.toRealm());
+
+  const found = (input: { kind: SettlementKind; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Settlement => {
+    if (!existsSync(input.cwd)) throw new Error(`no such folder: ${input.cwd}`);
+    const taken = [...store.settlements.values()].some((s) => s.hex.q === input.hex.q && s.hex.r === input.hex.r);
+    if (taken) throw new Error("that hex is occupied");
+    const s: Settlement = {
+      id: randomUUID(),
+      kind: input.kind,
+      name: input.name.trim() || basename(input.cwd),
+      hex: input.hex,
+      cwd: input.cwd,
+      profileId: input.profileId || "default",
+      model: null,
+      permissionMode: null,
+      state: "idle",
+      sessionId: null,
+      flag: null,
+      chat: [],
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      costUsd: 0,
+      foundedAt: Date.now(),
+      lastActiveAt: Date.now(),
+      error: null,
+    };
+    store.settlements.set(s.id, s);
+    store.save();
+    emit(s);
+    return s;
+  };
+
+  ipcMain.handle("found", (_e, input: Parameters<typeof found>[0]) => found(input));
+
+  ipcMain.handle("move", (_e, id: string, hex: { q: number; r: number }) => {
+    const s = store.settlements.get(id);
+    if (!s) throw new Error("no such settlement");
+    if (hex.q === store.cottageHex.q && hex.r === store.cottageHex.r) {
+      throw new Error("the cottage is there");
+    }
+    const taken = [...store.settlements.values()].some(
+      (o) => o.id !== id && o.hex.q === hex.q && o.hex.r === hex.r,
+    );
+    if (taken) throw new Error("that hex is occupied");
+    s.hex = hex;
+    store.save();
+    emit(s);
+  });
+
+  ipcMain.handle("raze", (_e, id: string) => {
+    sup.razed(id);
+    store.settlements.delete(id);
+    store.save();
+    win?.webContents.send("removed", id);
+  });
+
+  ipcMain.handle("send", (_e, id: string, text: string) => sup.send(id, text));
+  ipcMain.handle("answerFlag", (_e, id: string, allow: boolean) => sup.answerFlag(id, allow));
+  ipcMain.handle("interrupt", (_e, id: string) => sup.interrupt(id));
+
+  ipcMain.handle("openTerminal", (_e, id: string) => {
+    const s = store.settlements.get(id);
+    if (s) openTerminalAt(s.cwd);
+  });
+
+  // The top bar is a drag region, so the system already zooms on a double
+  // click; this is the explicit control beside it, and it reports back so the
+  // button can say what it will do next.
+  ipcMain.handle("toggleMaximize", () => {
+    if (!win) return false;
+    if (win.isFullScreen()) win.setFullScreen(false);
+    else if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+    return win.isMaximized() || win.isFullScreen();
+  });
+
+  // Only ever hand the system browser a real web address.
+  ipcMain.handle("openExternal", (_e, url: string) => {
+    const ok = /^https?:\/\//i.test(url);
+    if (ok) void shell.openExternal(url);
+  });
+
+  ipcMain.handle("pickFolder", async (_e, startIn?: string | null) => {
+    const r = await dialog.showOpenDialog({
+      properties: ["openDirectory", "createDirectory"],
+      // Falling back to the realm's base folder means the browser opens where
+      // the work lives rather than at the root of the disk.
+      ...(startIn || store.defaults.baseFolder
+        ? { defaultPath: startIn || store.defaults.baseFolder! }
+        : {}),
+    });
+    return r.canceled ? null : (r.filePaths[0] ?? null);
+  });
+
+  // Budgets are cached and refreshed in the background. A probe is free but not
+  // instant — several seconds inside Electron — and the cottage panel should
+  // open with numbers already on it rather than a spinner.
+  let budgetCache: AccountBudget[] = [];
+  let budgetRun: Promise<AccountBudget[]> | null = null;
+
+  const refreshBudgets = (): Promise<AccountBudget[]> => {
+    if (budgetRun) return budgetRun;
+    const ids = [...new Set(["default", ...store.profiles, ...[...store.settlements.values()].map((s) => s.profileId)])];
+    budgetRun = Promise.all(ids.map((p) => probeAccount(p, store.profileDir(p))))
+      .then((rows) => {
+        budgetCache = rows;
+        win?.webContents.send("budgets", rows);
+        return rows;
+      })
+      .finally(() => {
+        budgetRun = null;
+      });
+    return budgetRun;
+  };
+
+  ipcMain.handle("budgets", async () => {
+    // Hand back what we have and refresh behind it; wait only on a cold start.
+    if (!budgetCache.length) return refreshBudgets();
+    void refreshBudgets();
+    return budgetCache;
+  });
+
+  void refreshBudgets();
+  setInterval(() => void refreshBudgets(), 120_000);
+
+  ipcMain.handle("saveDefaults", async (_e, d: RealmDefaults) => {
+    const modelChanged = d.model !== store.defaults.model;
+    const modeChanged = d.permissionMode !== store.defaults.permissionMode;
+    store.defaults = { ...store.defaults, ...d };
+    store.save();
+    if (modelChanged) await sup.defaultModelChanged();
+    if (modeChanged) await sup.defaultModeChanged();
+  });
+
+  ipcMain.handle("setModel", (_e, id: string, model: string | null) => sup.setModel(id, model));
+  ipcMain.handle("setPermissionMode", (_e, id: string, mode: PermissionModeValue | null) =>
+    sup.setPermissionMode(id, mode),
+  );
+
+  // The model list costs nothing and never changes within a session.
+  let modelCache: ModelChoice[] = [];
+  let modelRun: Promise<ModelChoice[]> | null = null;
+  const loadModels = (): Promise<ModelChoice[]> => {
+    if (modelCache.length) return Promise.resolve(modelCache);
+    modelRun ??= listModels(store.profileDir("default"))
+      .then((rows) => {
+        modelCache = rows;
+        win?.webContents.send("models", rows);
+        return rows;
+      })
+      .finally(() => {
+        modelRun = null;
+      });
+    return modelRun;
+  };
+  ipcMain.handle("models", () => loadModels());
+  void loadModels();
+
+  // The idle reaper. Built in from the start: reaping is what makes dormant
+  // settlements honest rather than a lie the map tells.
+  setInterval(() => {
+    const doomed = sup.idleCandidates(Date.now(), (k) =>
+      k === "camp" ? store.defaults.campIdleMinutes : store.defaults.cityIdleMinutes,
+    );
+    for (const id of doomed) sup.reap(id);
+  }, 30_000);
+
+  buildMenu();
+  createWindow();
+
+  const selftest = process.env.THREADLANDS_SELFTEST;
+  if (selftest && win) {
+    win.webContents.once("did-finish-load", () => {
+      void (async () => {
+        const { runSelfTest } = await import("./selftest.js");
+        const pass = await runSelfTest(win!, selftest, {
+          found,
+          send: (id, text) => sup.send(id, text),
+          answerFlag: (id, allow) => sup.answerFlag(id, allow),
+          get: (id) => store.settlements.get(id),
+        });
+        sup.stopAll();
+        store.save();
+        app.exit(pass ? 0 : 1);
+      })();
+    });
+  }
+
+  app.on("activate", () => {
+    if (!BrowserWindow.getAllWindows().length) createWindow();
+  });
+});
+
+/** The application menu, so at least its labels carry the app's own name. */
+function buildMenu(): void {
+  const isMac = process.platform === "darwin";
+  const template: Parameters<typeof Menu.buildFromTemplate>[0] = [
+    ...(isMac
+      ? ([
+          {
+            label: "Threadlands",
+            submenu: [
+              { role: "about" as const, label: "About Threadlands" },
+              { type: "separator" as const },
+              { role: "hide" as const, label: "Hide Threadlands" },
+              { role: "hideOthers" as const },
+              { role: "unhide" as const },
+              { type: "separator" as const },
+              { role: "quit" as const, label: "Quit Threadlands" },
+            ],
+          },
+        ])
+      : []),
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [
+        {
+          label: "Fill Screen",
+          accelerator: "CmdOrCtrl+Ctrl+F",
+          click: () => {
+            if (!win) return;
+            if (win.isMaximized()) win.unmaximize();
+            else win.maximize();
+          },
+        },
+        { role: "togglefullscreen" },
+        { type: "separator" },
+        { role: "reload" },
+        { role: "toggleDevTools" },
+      ],
+    },
+    { role: "windowMenu" },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.on("before-quit", () => {
+  sup?.stopAll();
+  store?.save();
+});
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
