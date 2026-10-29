@@ -15,7 +15,8 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 - A settlement's panel pins only its **name**, with an info button beside it.
   Everything else — folder, account, tokens, spend, model, permission mode,
-  Raze — slides out over the transcript as a sheet, and `Esc` closes it. Labels
+  Raze — slides out over the transcript as its own sheet of parchment, and
+  `Esc` closes it. Labels
   are capitalised with a hairline between rows, and Raze sits at the foot,
   right-aligned and red.
 - A settlement's details stay put while only its transcript scrolls. Scrolling

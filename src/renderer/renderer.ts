@@ -1374,7 +1374,15 @@ function render(): void {
   hint.textContent = s.name;
   pane.querySelector("#details-toggle")?.addEventListener("click", () => {
     detailsOpen = !detailsOpen;
-    render();
+    // Toggle the class on the element that is already on screen rather than
+    // re-rendering. A re-render builds the sheet in its final position, so the
+    // browser has no previous value to animate from and it simply appears.
+    const sheet = pane.querySelector<HTMLElement>("#details");
+    const btn = pane.querySelector<HTMLElement>("#details-toggle");
+    sheet?.classList.toggle("open", detailsOpen);
+    btn?.classList.toggle("on", detailsOpen);
+    btn?.setAttribute("aria-expanded", String(detailsOpen));
+    btn?.setAttribute("title", detailsOpen ? "Hide details" : "Show details");
   });
 
   pane.querySelectorAll<HTMLButtonElement>(".runtoggle").forEach((b) => {
@@ -1507,7 +1515,11 @@ function cycleMode(): void {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && detailsOpen) {
     detailsOpen = false;
-    render();
+    const sheet = pane.querySelector<HTMLElement>("#details");
+    const btn = pane.querySelector<HTMLElement>("#details-toggle");
+    sheet?.classList.remove("open");
+    btn?.classList.remove("on");
+    btn?.setAttribute("aria-expanded", "false");
     return;
   }
   if (e.key === "Tab" && e.shiftKey && selected) {

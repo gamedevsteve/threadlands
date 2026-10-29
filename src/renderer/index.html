@@ -206,11 +206,22 @@
     overflow-y: auto;
     display: flex; flex-direction: column;
     padding: 14px 16px 18px; margin: 0 -16px;
-    background: #efe4cd;
+    /* Its own sheet of paper, with the grain offset from the panel beneath so
+       the two do not line up and read as one surface. */
+    background-color: #fffdf7;
+    background-image:
+      linear-gradient(rgba(255, 253, 247, var(--veil)), rgba(255, 253, 247, var(--veil))),
+      url("./assets/parchment.webp");
+    background-size: cover, cover;
+    background-position: center, 72% 38%;
+    background-repeat: no-repeat, no-repeat;
     border-left: 1px solid var(--edge);
-    box-shadow: -14px 0 26px -16px rgba(40, 26, 8, .55);
-    transform: translateX(102%);
-    transition: transform .22s cubic-bezier(.22, .61, .36, 1);
+    box-shadow: -18px 0 30px -18px rgba(40, 26, 8, .6);
+    transform: translateX(103%);
+    transition: transform .26s cubic-bezier(.22, .61, .36, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .details { transition: none; }
   }
   .details.open { transform: translateX(0); }
   .details label:first-of-type { margin-top: 16px; }

@@ -753,6 +753,15 @@ queued on the GPU and wall-clock around the JS reports near zero.
   28fps to 99. Dropping that cache inside `resize()` undid all of it, because a splitter drag
   resizes every frame — the staleness check already covers a viewport leaving the cached rect.
 
+### Animating anything the renderer owns
+
+The details sheet slides because its class is toggled on the element already on
+screen. Re-rendering the panel to open it did nothing visible: `render()` rebuilds
+the markup, so the sheet is *born* in its final position and the browser has no
+previous value to transition from. Anything that should move has to change on a
+live node — which is a general rule here, since this renderer redraws by
+replacing innerHTML.
+
 ### The self test
 
 `npm run selftest` drives the real app through its real IPC: founds a camp in a scratch
