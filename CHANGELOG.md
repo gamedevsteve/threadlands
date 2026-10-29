@@ -35,6 +35,10 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Changed
 
+- **Home** zooms back out as well as recentring. Centred at full zoom the
+  cottage is 400-odd pixels across and fills the view, so home looked like it
+  had gone somewhere else — there was nothing left on screen to recognise.
+  `0` does the same, and both now glide rather than snap.
 - Dragging the map a long way no longer stutters. The ground is cached in
   chunks rather than one viewport-sized piece, so a long pan builds only what
   has just come into view.

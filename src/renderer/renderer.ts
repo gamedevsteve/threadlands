@@ -48,6 +48,7 @@ const keep = (window as unknown as { keep: Keep }).keep;
 
 const MAP_RADIUS = 14;        // rings of hexes from the cottage
 const SPRITE_FRACTION = 1.15; // sprite width relative to hex width — tuned to the art
+const ZOOM_DEFAULT = 0.62;
 const ZOOM_MIN = 0.22;
 const ZOOM_MAX = 2.6;
 
@@ -57,7 +58,7 @@ let realm: Realm;
 const byId = new Map<string, Settlement>();
 let selected: string | null = null;
 let cottageOpen = false;
-let camera = { x: 0, y: 0, zoom: 0.62 };
+let camera = { x: 0, y: 0, zoom: ZOOM_DEFAULT };
 let hover: { q: number; r: number } | null = null;
 let founding: { q: number; r: number } | null = null;
 let budgets: AccountBudget[] = [];
@@ -1029,13 +1030,15 @@ window.addEventListener("mouseup", (e) => {
  */
 let flightId = 0;
 
-function flyTo(x: number, y: number, ms = 420): void {
+function flyTo(x: number, y: number, zoom?: number, ms = 420): void {
   const id = ++flightId;
   const fromX = camera.x;
   const fromY = camera.y;
+  const fromZoom = camera.zoom;
   const dx = x - fromX;
   const dy = y - fromY;
-  if (Math.hypot(dx, dy) < 1) return;
+  const dz = (zoom ?? fromZoom) - fromZoom;
+  if (Math.hypot(dx, dy) < 1 && Math.abs(dz) < 0.001) return;
   const started = performance.now();
   const step = (now: number) => {
     if (id !== flightId) return;
@@ -1043,6 +1046,7 @@ function flyTo(x: number, y: number, ms = 420): void {
     const e = 1 - (1 - t) ** 3; // ease out: quick away, gentle arrival
     camera.x = fromX + dx * e;
     camera.y = fromY + dy * e;
+    camera.zoom = fromZoom + dz * e;
     invalidate();
     if (t < 1) requestAnimationFrame(step);
   };
@@ -1093,7 +1097,7 @@ window.addEventListener("keydown", (e) => {
   const cy = canvas.clientHeight / 2;
   if (e.key === "=" || e.key === "+") zoomAt(cx, cy, 1.2);
   else if (e.key === "-" || e.key === "_") zoomAt(cx, cy, 1 / 1.2);
-  else if (e.key === "0") { camera = { x: 0, y: 0, zoom: 0.62 }; }
+  else if (e.key === "0") flyTo(0, 0, ZOOM_DEFAULT);
   invalidate();
 });
 
@@ -1728,8 +1732,11 @@ promptEl.addEventListener("keydown", (e) => {
   void sendPrompt();
 });
 document.getElementById("go-home")!.addEventListener("click", () => {
-  const p = hexToPixel(realm.cottageHex, hexSize());
-  flyTo(-p.x, -p.y);
+  // Zoom back out as well as recentring. Centred at full zoom the cottage is
+  // 400-odd pixels across and fills the view, so "home" looked like it had
+  // gone somewhere else entirely — there was nothing left on screen to
+  // recognise. Home should be a view you know, not just a coordinate.
+  flyTo(0, 0, ZOOM_DEFAULT);
 });
 
 const zoomWin = document.getElementById("zoomwin") as HTMLButtonElement;
