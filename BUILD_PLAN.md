@@ -571,6 +571,41 @@ decoration, and it directly reduces interruptions.
 
 ## 7. Phases
 
+### Where this stands
+
+Phases 0–2 are built and running. Phase 3 is most of the way there; 4 is partly done; 5 and 6
+are untouched.
+
+| | | |
+|---|---|---|
+| **Phase 0** — the spike | ✅ done | 6/6 checks, on a live session |
+| **Phase 1** — the Keep | 🟡 core built | supervisor, realm, IPC, reaper. No grants, routes, workers or driver seam |
+| **Phase 2** — the map | ✅ done | grid, camera, founding, moving, ground, name plates |
+| **Phase 3** — the governor's hall | 🟡 most of it | transcript, collapsible tool runs, permission card, Open Terminal. No diffs, no *Allow always*, no workers |
+| **Phase 4** — a living realm | 🟡 partly | dormant dimming, spend and tokens per settlement, editable cottage. No notifications, no tile animation, no routes, no `listSessions` import |
+| **Phase 5** — settlers and walls | ⬜ not started | |
+| **Phase 6** — messengers | ⬜ not started | |
+
+Built along the way, and not in the original plan:
+
+- Permission modes per settlement — ask / auto / accept edits / plan / never ask — cycled with
+  Shift+Tab over a realm default. This is most of what *Allow always* was for.
+- A model per settlement over a realm default, switchable **mid-conversation**.
+- Drag a settlement to another hex.
+- A base folder for founding, so the browser opens where the work is.
+- Markdown rendering, escaped before parsing; links open in the system browser.
+- Window chrome: a draggable top bar that zooms, a resizable panel, Enter to send.
+- The parchment panel, Libre Baskerville, the name plates, the app icon, and
+  `npm run package` for a real .app.
+- A render loop that only draws when something changed, and a cached ground. See
+  *Keeping the map cheap*.
+
+**The honest gap:** everything about §5 — walls, grants, routes, libraries — is still just
+this document. A settlement is scoped to its folder by `cwd` and nothing stops it reading
+outside. That is the next real piece of work, and the one the metaphor most depends on.
+
+
+
 Each phase ends at something runnable. The order is chosen so the riskiest unknown dies first.
 
 ### Phase 0 — The spike · half a day
@@ -755,6 +790,17 @@ and it is the surface you'll stare at all day. *Allow always* writing to the set
 
 **Gate:** a full working session run without opening a terminal once.
 
+**Status: most of it.** The panel streams the transcript, collapses each run of tool work to
+one line you can expand, renders markdown, and carries the permission card and Open Terminal.
+Still owed: readable diffs instead of a bare `write path` line, and workers — the many-worker
+model was deferred with Phase 1, so there is nothing to list yet.
+
+*Allow always* was replaced rather than built. Permission **modes** turned out to be the thing
+actually wanted — auto mode lets a classifier approve routine calls and only raises the flag
+when it cannot decide, which is the trust loop without a growing list of rules to audit. A
+per-tool `allowedTools` list is still the right mechanism for narrow, permanent grants, and
+belongs with §5's route compiler.
+
 ### Phase 4 — A living realm · 2–3 evenings
 
 Native notifications when the app is backgrounded and a banner goes up. Spend tracking per
@@ -768,6 +814,13 @@ your twelve repos become a populated map on day one.
 
 **Gate:** you stop opening terminals out of habit.
 
+**Status: partly.** Dormant settlements dim, spend and exact token counts show in the panel,
+and the cottage is editable — realm defaults for model, permission mode, idle timeouts, budget
+ceiling and base folder. Not done: native notifications when a flag goes up while the app is
+backgrounded (the thing most likely to make the map worth leaving open), spend on the tile
+rather than only in the panel, chimney smoke and lanterns, the trade-route overlay, and the
+first-launch offer to found a city for every session `listSessions()` finds.
+
 ### Phase 5 — Settlers and walls · open-ended
 
 Everything that earns its place after daily use. `forkSession` as settlers leaving a city
@@ -775,6 +828,9 @@ to try a branch on an adjacent hex. Promotion from camp to city. Keyboard nav be
 flagged settlements. Decay on camps untouched for weeks.
 
 **Gate:** none. This is the part that stays fun.
+
+**Status: not started.** Nothing here is blocked; it is all waiting on daily use to say which
+parts earn their place.
 
 ### Phase 6 — Messengers · 3–4 evenings
 
@@ -788,6 +844,8 @@ to chafe, and not before.
 
 **Gate:** a project finds a bug in a library it cannot write to, keeps working while the
 dispatch waits, and the fix lands in the library's own settlement without the wall ever opening.
+
+**Status: not started**, and correctly so — it depends on walls, and walls do not exist yet.
 
 ---
 
@@ -870,20 +928,34 @@ for sprites is a sort on `(r, q)` ascending.
 
 ---
 
-## 10. Decisions to lock before Phase 1
+## 10. Decisions
+
+Six are now decided, by building them. The rest still wait on §5.
+
+**Settled:**
+
+- **Idle timeouts** — 20 minutes for camps, 120 for cities, editable in the cottage. The
+  suggested 5/30 was too eager; a city you leave over lunch should still be warm.
+- **Budget caps** — `maxBudgetUsd` per settlement, realm default $5, enforced by the SDK.
+- **One realm** — one map, profiles separate the accounts. No second map.
+- **Settings inheritance** — left at the SDK's own default, so settlements honour your
+  existing `CLAUDE.md` and permissions. Worth revisiting when walls land, since a project's
+  own config can widen what a settlement may do.
+- **Permission posture** — not the ask-every-time default the plan assumed, but a mode per
+  settlement over a realm default. The mechanism for fencing is §5's; this is the dial.
+- **Profile seeding** — a new profile directory inherits nothing. You log it in yourself,
+  once, from a terminal. Threadlands never touches credentials, which is the only version of
+  this worth having.
+
+**Still open:**
 
 - **Settings inheritance.** `settingSources: ["user", "project"]` means settlements honour
   your existing `CLAUDE.md` files and permissions. Almost certainly what you want — but it
   means Threadlands is not a clean room, and a project's own config can widen what a
   settlement may do.
-- **Idle timeouts.** Suggest 5 minutes for camps, 30 for cities. Short enough to matter,
-  long enough that a resume never happens mid-thought.
-- **Budget caps.** `maxBudgetUsd` per settlement, lower for camps. This is the only thing
-  standing between six parallel agents and a surprising bill.
-- **Raze semantics.** Does razing a camp delete its session from `~/.claude/projects/`, or
-  only remove the tile? Pick one and make the dialog say it plainly.
-- **One realm or several.** One map for everything is simplest, and profiles already
-  separate work from personal without a second map — so defer multiple realms.
+- **Raze semantics.** Still open, and now visible: razing removes the tile and the realm's
+  record, and leaves the session in `~/.claude/projects/` untouched. The dialog does not say
+  so. A city makes you type `delete` first; a camp takes one confirming click.
 - **Default fencing.** `blockReadsOutsideWorkingDirectories` on for every new settlement, with
   grants as the deliberate exception. Starting open and tightening later never happens.
 - **Sandbox on by default.** It is the only thing holding the Bash half of a wall. Decide what
@@ -896,9 +968,6 @@ for sprites is a sort on `(r, q)` ascending.
   waits at the post. Probably yes — one rule, no exceptions, and you want to know.
 - **Stale dispatches.** One that has waited a week may name code that has moved. Record the
   sender's git rev at dispatch time and mark the dispatch when the recipient has moved past it.
-- **Profile seeding.** What a new profile directory inherits from `~/.claude` — nothing,
-  a copied `settings.json`, or symlinked `CLAUDE.md` files. Decide once; it is annoying to
-  change after several profiles exist.
 
 ---
 
@@ -910,10 +979,14 @@ will be the kind that only appear after four hours of uptime.
 
 **Transcript rendering.** Terminals give you streaming, tool output and diffs for free. You
 are rebuilding all of it. Expect this to take longer than the map, and expect to keep tuning
-it for months.
+it for months. *So far true, and cheaper than feared* — markdown and collapsible tool runs got
+it readable quickly. Diffs are the part still missing, and will be the expensive half.
 
 **Silent cost.** Six agents working at once burns tokens invisibly. The game frame helps:
 per-settlement spend shown on the tile as a visible resource is both honest and thematic.
+*Half done* — exact tokens and dollars show in a settlement's panel, and the cottage shows what
+each account has left against its plan windows. Neither is on the tile yet, which is where it
+would actually be glanceable.
 
 Conspicuously *not* hard: the hex grid, placement, camera, flags, save and load. The fun
 part is also the cheap part, which is a good property for a project you'll build in evenings.
@@ -938,10 +1011,16 @@ Written down so they stop being tempting.
 - Worker sprites on the map
 - Anything multiplayer
 
-Two of those are deliberate half-measures rather than deferrals. **Non-Claude providers**:
-the driver seam goes in at Phase 1, the second driver does not. **Worker sprites**: the
-many-worker model goes in at Phase 1, the swarm-around-the-tile rendering does not. Both are
-structural if you build them early and a rewrite if you don't.
+Two of those were meant to be deliberate half-measures rather than deferrals. **Non-Claude
+providers**: the driver seam goes in at Phase 1, the second driver does not. **Worker
+sprites**: the many-worker model goes in at Phase 1, the swarm-around-the-tile rendering does
+not. Both are structural if you build them early and a rewrite if you don't.
+
+*Neither half-measure was built.* `Settlement` has a `workers[]` field and nothing fills it,
+and the supervisor talks to the SDK directly with no `SettlementDriver` interface between.
+Both were deferred on the same reasoning — nothing above them existed to constrain their shape
+— which is defensible for the driver seam and a growing debt for workers, since every new
+field on `Settlement` is one more thing a worker would have to grow too.
 
 Roads between cities came off this list — they turned out to be a view of real permission
 state (§5, Folder scope) rather than decoration.
@@ -956,8 +1035,25 @@ your terminals every day, and most will look different by then.
 
 ---
 
-Next step is Phase 0 — one file, half a day, and it answers the only question that can
-still sink this.
+## 13. What to build next
 
-Assets on hand: `tile base`, `main cottage`, `camp`, `city` — downscale to ~512px.
-Still needed: a library sprite, a post sprite, and a needs-you variant of camp and city.
+In the order that makes the next thing possible.
+
+1. **Walls** (§5). The whole of §5 is still prose. Until a settlement is actually fenced, the
+   map promises a containment it does not have. The route compiler — one function from a
+   settlement's `grants` to the `permissions` and `sandbox` block its sessions launch with —
+   is the piece everything else hangs off, and it is testable without any UI.
+2. **Notifications.** A flag that goes up while the app is in the background is currently
+   invisible. This is the smallest change with the largest effect on whether the map is worth
+   leaving open.
+3. **`listSessions()` on first launch.** Offer a city for every session already on disk, per
+   profile. A populated map on day one, from work that already exists.
+4. **Diffs in the panel.** `write path/to/file` should show what changed. This is the main
+   remaining reason to open a terminal.
+5. **A realm backup.** One JSON file, written atomically but with no second copy. A rolling
+   backup before each save is a small change and the kind of thing you want *before* you need
+   it.
+6. **Grants and routes in the UI**, once walls exist underneath them.
+
+Assets still needed: a library sprite, a post sprite, and needs-you variants of camp and city
+— the flag is drawn on canvas until those exist.
