@@ -1222,15 +1222,21 @@ function clickHex(h: { q: number; r: number }): void {
     selected = s.id;
     founding = null;
     setBuilding(null);
-  } else {
+  } else if (building) {
     selected = null;
     founding = h;
-    // An armed build tool has already answered the first two questions, so the
-    // form opens on the house you picked rather than back on the default.
-    foundKind = building?.kind ?? "camp";
-    foundArt = building?.art ?? defaultArt(foundKind);
+    // The build tool has already answered the first two questions, so the form
+    // opens on the house you picked rather than back on the default.
+    foundKind = building.kind;
+    foundArt = building.art;
     foundMode = "existing";
     setBuilding(null);
+  } else {
+    // Bare ground, nothing in hand. Founding belongs to the build tool now, so
+    // a stray click on grass puts the panel down instead of opening a form
+    // nobody asked for — which also makes it the way out of one.
+    selected = null;
+    founding = null;
   }
   render();
 }
@@ -1775,7 +1781,7 @@ function render(): void {
     pane.innerHTML = `<div class="empty">
       ${building
         ? `<p><b>${esc(SETTLEMENT_ART.find((a) => a.value === building!.art)?.label ?? "")} ${esc(building.kind)}</b> in hand. Click empty ground to place it, or the build tool again to put it down.</p>`
-        : "<p>Click empty ground to found a camp or a city, or use the build tool to choose a house first. Click the cottage for realm defaults and what each account has left.</p>"}
+        : "<p>Pick a house from the build tool, then click empty ground to raise it. Click the cottage for realm defaults and what each account has left.</p>"}
       <p>Two fingers to pan, pinch or <kbd>⌘</kbd>+scroll to zoom — or drag with a mouse.
       <kbd>+</kbd> <kbd>-</kbd> zoom, <kbd>0</kbd> recentres. Drag a settlement to move it.</p>
       <p><kbd>Enter</kbd> sends a prompt, <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.</p>
@@ -1957,6 +1963,13 @@ function cycleMode(): void {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && (building || !paletteEl.classList.contains("hidden"))) {
     setBuilding(null);
+    return;
+  }
+  // The founding form is a deliberate mode now, so it needs a way out that is
+  // not clicking somewhere else on the map.
+  if (e.key === "Escape" && founding) {
+    founding = null;
+    render();
     return;
   }
   if (e.key === "Escape" && detailsOpen) {

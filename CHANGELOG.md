@@ -28,15 +28,18 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   reads as one thing from across the map, with nothing to click and no name to
   read. An existing settlement can be rebuilt in another house from its details
   sheet, mid-conversation, without disturbing its session.
-- **The build tool**, second on the map rail. It opens a palette of every
-  house, and picking one puts it in your hand: the map shows a ghost of it
-  under the pointer, and the next empty tile you click becomes it, with the
-  founding form already on the kind and house you chose. Escape, or the tool
-  again, puts it down — and so does clicking anything that is not empty ground,
-  since that was not a placement. While something is in hand a chip sits under
-  the tool saying what it is and how to stop, which stays on screen whatever
-  else you open. Clicking bare ground still works exactly as it did, and the
-  founding form now carries the same house picker.
+- **The build tool**, second on the map rail, and the only way to found a
+  settlement now. It opens a palette of every house, and picking one puts it in
+  your hand: the map shows a ghost of it under the pointer, and the next empty
+  tile you click becomes it, with the founding form already on the kind and
+  house you chose. Escape, or the tool again, puts it down — and so does
+  clicking anything that is not empty ground, since that was not a placement.
+  While something is in hand a chip sits under the tool saying what it is and
+  how to stop, which stays on screen whatever else you open.
+- **Bare ground no longer opens the founding form.** With nothing in hand a
+  click on grass puts the panel down and nothing else, so the map can be
+  cleared without being asked to found something. It is also the way out of a
+  form you did not mean to open, alongside Escape.
 
 - **Your name and your avatar.** The cottage takes a name, so the map says who
   you are instead of "You", and an image that stands outside the cottage door.
