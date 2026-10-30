@@ -163,6 +163,35 @@
     font-size: 11px; color: rgba(236, 223, 195, .6); margin-top: 1px;
   }
 
+  /* What is in hand, said where you picked it up and kept on screen for as
+     long as it is in hand. The palette's own hint is not enough: it lives in
+     the side panel, which is the first thing to be replaced the moment you
+     click anything, and then nothing on screen says how to stop. */
+  .inhand {
+    position: fixed;
+    right: calc(var(--aside-w, 380px) + 7px + 14px + 52px);
+    top: calc(44px + 14px + 52px);
+    z-index: 6;
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 8px 7px 9px;
+    border-radius: 12px;
+    background: rgba(13, 25, 31, .94);
+    border: 1px solid rgba(255, 246, 226, .17);
+    box-shadow: 0 10px 24px rgba(6, 16, 21, .55);
+    color: #ecdfc3; font-size: 12px; white-space: nowrap;
+  }
+  .inhand .tile { position: relative; display: block; width: 34px; height: 34px; flex: none; }
+  .inhand .tile img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .inhand .tile .art { object-fit: contain; padding: 3px 3px 4px; }
+  .inhand b { font-weight: 600; }
+  .inhand .sub { display: block; font-size: 11px; color: rgba(236, 223, 195, .62); margin-top: 1px; }
+  .inhand .drop {
+    flex: none; margin-left: 2px; width: 24px; height: 24px; padding: 0;
+    border-radius: 7px; border: 1px solid rgba(255, 246, 226, .22);
+    background: none; color: #ecdfc3; font-size: 14px; line-height: 1; cursor: pointer;
+  }
+  .inhand .drop:hover { border-color: #e8cf96; color: #fbf2df; background: rgba(255, 246, 226, .1); }
+
   .choices { display: flex; gap: 9px; }
   .choice {
     display: flex; flex-direction: column; align-items: center; gap: 7px;
@@ -504,6 +533,7 @@
   <!-- Filled by the renderer from SETTLEMENT_ART, so the houses on offer are
        always the houses that exist. -->
   <div class="palette hidden" id="palette"></div>
+  <div class="inhand hidden" id="inhand"></div>
   <div class="splitter" id="splitter" title="Drag to resize · double-click to reset"></div>
   <aside>
     <div class="pane" id="pane"></div>

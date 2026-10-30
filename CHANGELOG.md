@@ -24,8 +24,11 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   house, and picking one puts it in your hand: the map shows a ghost of it
   under the pointer, and the next empty tile you click becomes it, with the
   founding form already on the kind and house you chose. Escape, or the tool
-  again, puts it down. Clicking bare ground still works exactly as it did, and
-  the founding form now carries the same house picker.
+  again, puts it down — and so does clicking anything that is not empty ground,
+  since that was not a placement. While something is in hand a chip sits under
+  the tool saying what it is and how to stop, which stays on screen whatever
+  else you open. Clicking bare ground still works exactly as it did, and the
+  founding form now carries the same house picker.
 
 - **Your name and your avatar.** The cottage takes a name, so the map says who
   you are instead of "You", and an image that stands outside the cottage door.

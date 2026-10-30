@@ -153,6 +153,7 @@ const promptEl = document.getElementById("prompt") as HTMLTextAreaElement;
 const hint = document.getElementById("hint")!;
 const toastEl = document.getElementById("toast")!;
 const paletteEl = document.getElementById("palette")!;
+const inHandEl = document.getElementById("inhand")!;
 const buildBtn = document.getElementById("go-build")!;
 
 /** The sprite a settlement draws as, whatever its stored house turns out to be. */
@@ -1200,10 +1201,14 @@ function clickHex(h: { q: number; r: number }): void {
   razeArmed = null;
   razeTyped = "";
   detailsOpen = false;
+  // Only empty ground places what is in hand. Clicking anything else is not a
+  // placement, so the tool goes down rather than following you around the map
+  // with no way left on screen to say how to stop it.
   if (hexEq(h, realm.cottageHex)) {
     selected = null;
     founding = null;
     cottageOpen = true;
+    setBuilding(null);
     void refreshBudgets();
     render();
     return;
@@ -1213,6 +1218,7 @@ function clickHex(h: { q: number; r: number }): void {
   if (s) {
     selected = s.id;
     founding = null;
+    setBuilding(null);
   } else {
     selected = null;
     founding = h;
@@ -1931,9 +1937,19 @@ function setBuilding(next: { kind: SettlementKind; art: SettlementArt } | null):
   paletteEl.classList.add("hidden");
   buildBtn.classList.toggle("on", !!next);
   canvas.classList.toggle("placing", !!next);
+  inHandEl.classList.toggle("hidden", !next);
+  if (next) {
+    const label = SETTLEMENT_ART.find((a) => a.value === next.art)?.label ?? "";
+    inHandEl.innerHTML = `<span class="tile">
+        <img class="frame" src="./assets/blank.png" alt="" />
+        <img class="art" src="./assets/${next.art}.png" alt="" />
+      </span>
+      <span><b>${esc(label)} ${esc(next.kind)}</b> in hand
+        <span class="sub">Click empty ground to place · Esc to cancel</span></span>
+      <button class="drop" id="put-down" title="Put it down (Esc)" aria-label="Put it down">×</button>`;
+    inHandEl.querySelector("#put-down")?.addEventListener("click", () => setBuilding(null));
+  }
   invalidate();
-  // The idle pane is the only one that says what is in hand; every other pane
-  // has its own job and the lit tool plus the ghost say it well enough there.
   if (!founding && !selected && !cottageOpen) render();
 }
 
