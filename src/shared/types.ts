@@ -102,6 +102,19 @@ export type Settlement = {
   error: string | null;
 };
 
+/**
+ * Where a settlement's folder comes from.
+ *
+ * A settlement is only ever scoped to a folder that exists, so the Keep is the
+ * one that makes it: founding and creating are a single act, and a clone that
+ * fails leaves no half-settled tile behind. `new` and `clone` both land inside
+ * the realm's base folder — the one the cottage sets.
+ */
+export type FolderChoice =
+  | { mode: "existing"; path: string }
+  | { mode: "new"; name: string }
+  | { mode: "clone"; url: string };
+
 /** One row of the cottage's budget panel — the server's meter, verbatim. */
 export type Meter = {
   kind: string;
@@ -177,7 +190,7 @@ export type Realm = {
 /** Everything the renderer can ask the Keep to do. */
 export type Api = {
   getRealm(): Promise<Realm>;
-  found(input: { kind: SettlementKind; art: SettlementArt; name: string; cwd: string; hex: Hex; profileId: string }): Promise<Settlement>;
+  found(input: { kind: SettlementKind; art: SettlementArt; name: string; folder: FolderChoice; hex: Hex; profileId: string }): Promise<Settlement>;
   raze(id: string): Promise<void>;
   move(id: string, hex: Hex): Promise<void>;
   send(id: string, text: string): Promise<void>;

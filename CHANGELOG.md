@@ -13,6 +13,14 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **Two more ways to give a settlement a folder.** Founding no longer assumes
+  the folder already exists: the form offers *On disk* (as before), *New
+  folder* — a name, created empty — and *Clone a repo* — a git URL, cloned and
+  then stepped into, so the settlement is scoped to the folder git made rather
+  than the one above it. Both new paths land in the realm's base folder, the
+  one the cottage sets. The Keep does the making, so founding and creating are
+  one act: a clone that fails or a name already taken leaves the map exactly as
+  it was, with the form still open and git's own reason in the toast.
 - **Houses.** A camp or a city can be built in any of three looks, and the art
   for all six ships. The house is looks only — the kind still decides how long
   a settlement survives idle and how hard it is to raze — which is what makes

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type { Settlement } from "../shared/types.js";
 
 type Hooks = {
-  found: (i: { kind: "camp" | "city"; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }) => Settlement;
+  found: (i: { kind: "camp" | "city"; name: string; folder: { mode: "existing"; path: string }; hex: { q: number; r: number }; profileId: string }) => Promise<Settlement>;
   send: (id: string, text: string) => Promise<void>;
   answerFlag: (id: string, allow: boolean) => void;
   get: (id: string) => Settlement | undefined;
@@ -49,7 +49,7 @@ export async function runSelfTest(win: BrowserWindow, prefix: string, hooks: Hoo
   const cwd = mkdtempSync(join(tmpdir(), "threadlands-selftest-"));
   writeFileSync(join(cwd, "README.md"), "A scratch folder for the Threadlands self test.\n");
 
-  const s = hooks.found({ kind: "camp", name: "Testcamp", cwd, hex: { q: 1, r: -1 }, profileId: "default" });
+  const s = await hooks.found({ kind: "camp", name: "Testcamp", folder: { mode: "existing", path: cwd }, hex: { q: 1, r: -1 }, profileId: "default" });
   results.push(await until("camp founded and on the map", 5000, () => !!hooks.get(s.id)));
   await wait(600);
   await shoot(win, `${prefix}-founded.png`);

@@ -268,6 +268,18 @@
   aside button { background: rgba(255, 250, 238, .5); }
   aside button:hover { border-color: var(--accent); background: rgba(255, 250, 238, .8); }
   aside button.primary { background: var(--accent); border-color: var(--accent); color: #fdf4dd; }
+  /* A row of buttons that behave as one choice. Borders are collapsed so it
+     reads as a single control rather than three things that happen to touch. */
+  .seg { display: flex; margin: 2px 0 7px; }
+  .seg button { flex: 1; border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 5px 0 0 5px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 5px 5px 0; }
+  .seg button.on {
+    background: var(--accent); border-color: var(--accent); color: #fdf4dd;
+    position: relative; z-index: 1;
+  }
+  aside .seg button.on:hover { background: var(--accent); }
+  .fmode > input { width: 100%; }
   aside .msg.you { background: rgba(138, 100, 16, .17); }
   aside .msg.governor { background: rgba(255, 250, 238, .55); }
   aside .msg.system { color: #8a5a10; }

@@ -4,7 +4,7 @@
 import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, nativeImage, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RealmStore } from "./realm.js";
@@ -14,6 +14,7 @@ import { listModels } from "./models.js";
 import { artFor } from "../shared/types.js";
 import type {
   AccountBudget,
+  FolderChoice,
   ModelChoice,
   PermissionModeValue,
   RealmDefaults,
@@ -202,17 +203,102 @@ app.whenReady().then(() => {
 
   ipcMain.handle("getRealm", () => store.toRealm());
 
-  const found = (input: { kind: SettlementKind; art?: string; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Settlement => {
-    if (!existsSync(input.cwd)) throw new Error(`no such folder: ${input.cwd}`);
+  /**
+   * The folder name a clone URL will produce, which is what git itself would
+   * pick: the last path segment, without `.git`. Worked out up front so the
+   * clone can be given an explicit destination and the result never has to be
+   * guessed at afterwards.
+   */
+  const repoFolderName = (url: string): string => {
+    const trimmed = url.replace(/\/+$/, "").replace(/\.git$/i, "");
+    return trimmed.split(/[/:]/).pop() ?? "";
+  };
+
+  /** Where `new` and `clone` put what they make. */
+  const baseFolder = (): string => {
+    const base = store.defaults.baseFolder?.trim();
+    if (!base) throw new Error("set a base folder in the cottage first");
+    if (!existsSync(base)) throw new Error(`no such base folder: ${base}`);
+    return base;
+  };
+
+  /**
+   * Turn a choice of folder into a folder that exists.
+   *
+   * Nothing is founded until this returns, so a clone that fails or a name
+   * that is already taken leaves the map exactly as it was.
+   */
+  const resolveFolder = async (f: FolderChoice): Promise<string> => {
+    if (f.mode === "existing") {
+      const path = f.path.trim();
+      if (!path) throw new Error("pick a folder first");
+      if (!existsSync(path)) throw new Error(`no such folder: ${path}`);
+      return path;
+    }
+
+    const base = baseFolder();
+
+    if (f.mode === "new") {
+      const name = f.name.trim();
+      // A folder name, not a path: anything that could climb out of the base
+      // folder is a different request than the one the form is making.
+      if (!name || name.startsWith(".") || /[/\\]/.test(name)) {
+        throw new Error("that is not a folder name");
+      }
+      const dir = join(base, name);
+      if (existsSync(dir)) throw new Error(`${name} is already in ${base}`);
+      mkdirSync(dir);
+      return dir;
+    }
+
+    const url = f.url.trim();
+    if (!url) throw new Error("paste a clone URL");
+    // git reads a leading dash as an option, so a URL that starts with one is
+    // an argument in disguise. It is also never a real clone URL.
+    if (url.startsWith("-")) throw new Error("that is not a clone URL");
+    const name = repoFolderName(url);
+    if (!name || name === "." || name === ".." || /[/\\]/.test(name)) {
+      throw new Error(`cannot tell the folder name from ${url}`);
+    }
+    const dir = join(base, name);
+    if (existsSync(dir)) throw new Error(`${name} is already in ${base}`);
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        "git",
+        // `--` so the URL can never be read as an option, and an explicit
+        // destination so the folder it lands in is the folder we return.
+        ["clone", "--", url, name],
+        {
+          cwd: base,
+          // Without this a private repo waits on a password prompt no one can
+          // ever answer, and the clone hangs until the timeout.
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          timeout: 10 * 60_000,
+          maxBuffer: 8 * 1024 * 1024,
+        },
+        (err, _out, stderr) => {
+          if (!err) return resolve();
+          const why = String(stderr || err.message).trim().split("\n").filter(Boolean).pop();
+          reject(new Error(`clone failed: ${why ?? "git would not say why"}`));
+        },
+      );
+    });
+    if (!existsSync(dir)) throw new Error("the clone finished but left no folder behind");
+    return dir;
+  };
+
+  const found = async (input: { kind: SettlementKind; art?: string; name: string; folder: FolderChoice; hex: { q: number; r: number }; profileId: string }): Promise<Settlement> => {
     const taken = [...store.settlements.values()].some((s) => s.hex.q === input.hex.q && s.hex.r === input.hex.r);
     if (taken) throw new Error("that hex is occupied");
+    const cwd = await resolveFolder(input.folder);
     const s: Settlement = {
       id: randomUUID(),
       kind: input.kind,
       art: artFor(input.kind, input.art),
-      name: input.name.trim() || basename(input.cwd),
+      name: input.name.trim() || basename(cwd),
       hex: input.hex,
-      cwd: input.cwd,
+      cwd,
       profileId: input.profileId || "default",
       model: null,
       permissionMode: null,

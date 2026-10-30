@@ -9,6 +9,7 @@ import { marked } from "marked";
 import { NOTIFY_WHEN, PERMISSION_MODES, SETTLEMENT_ART, artFor, defaultArt } from "../shared/types.js";
 import type {
   AccountBudget,
+  FolderChoice,
   ModelChoice,
   NotifyWhen,
   PermissionModeValue,
@@ -20,7 +21,7 @@ import type {
 
 type Keep = {
   getRealm(): Promise<Realm>;
-  found(i: { kind: SettlementKind; art: SettlementArt; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Promise<Settlement>;
+  found(i: { kind: SettlementKind; art: SettlementArt; name: string; folder: FolderChoice; hex: { q: number; r: number }; profileId: string }): Promise<Settlement>;
   raze(id: string): Promise<void>;
   move(id: string, hex: { q: number; r: number }): Promise<void>;
   send(id: string, text: string): Promise<void>;
@@ -79,6 +80,8 @@ let building: { kind: SettlementKind; art: SettlementArt } | null = null;
  */
 let foundKind: SettlementKind = "camp";
 let foundArt: SettlementArt = "camp-1";
+/** Where the folder is coming from: one you have, one to make, one to clone. */
+let foundMode: FolderChoice["mode"] = "existing";
 let budgets: AccountBudget[] = [];
 let budgetsLoading = false;
 let models: ModelChoice[] = [];
@@ -1226,6 +1229,7 @@ function clickHex(h: { q: number; r: number }): void {
     // form opens on the house you picked rather than back on the default.
     foundKind = building?.kind ?? "camp";
     foundArt = building?.art ?? defaultArt(foundKind);
+    foundMode = "existing";
     setBuilding(null);
   }
   render();
@@ -1401,6 +1405,13 @@ function renderPalette(): string {
 }
 
 function renderFounding(h: { q: number; r: number }): string {
+  const base = realm.defaults.baseFolder;
+  // Both ways of making a folder put it in the realm's base folder, so say
+  // which one — and say it plainly when there is not one to put it in.
+  const where = (verb: string): string =>
+    base
+      ? `<p class="muted hint">${verb} <span class="mono">${esc(base)}</span>.</p>`
+      : `<p class="muted hint">No base folder yet — set one in the cottage first.</p>`;
   return `<h2>Found a settlement</h2>
     <p class="muted" style="margin-top:0">Empty ground at <span class="mono">${h.q}, ${h.r}</span>.</p>
     <label>Kind</label>
@@ -1412,7 +1423,23 @@ function renderFounding(h: { q: number; r: number }): string {
     <div class="choices" id="f-art">${artChoices(foundKind, foundArt)}</div>
     <p class="muted hint">Looks only. Build a run of related projects in the same house and the map groups them for you.</p>
     <label>Folder</label>
-    <div style="display:flex;gap:6px"><input id="f-cwd" placeholder="${esc(realm.defaults.baseFolder ?? "/path/to/project")}" value="${esc(realm.defaults.baseFolder ?? "")}" /><button id="f-pick">Browse</button></div>
+    <div class="seg" id="f-mode">
+      <button type="button" data-mode="existing" class="on">On disk</button>
+      <button type="button" data-mode="new">New folder</button>
+      <button type="button" data-mode="clone">Clone a repo</button>
+    </div>
+    <div class="fmode" data-mode="existing">
+      <div style="display:flex;gap:6px"><input id="f-cwd" placeholder="${esc(base ?? "/path/to/project")}" value="${esc(base ?? "")}" /><button id="f-pick">Browse</button></div>
+    </div>
+    <div class="fmode hidden" data-mode="new">
+      <input id="f-newname" placeholder="folder name" autocomplete="off" spellcheck="false" />
+      ${where("Created empty in")}
+    </div>
+    <div class="fmode hidden" data-mode="clone">
+      <input id="f-url" placeholder="https://github.com/you/project.git" autocomplete="off" spellcheck="false" />
+      ${where("Cloned into")}
+      <p class="muted hint">The settlement takes the folder git makes, not the one above it.</p>
+    </div>
     <label>Name</label><input id="f-name" placeholder="defaults to the folder name" />
     <label>Account</label>
     <select id="f-profile">${realm.profiles.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select>
@@ -1691,15 +1718,41 @@ function render(): void {
       wireArt();
       invalidate();
     });
-    pane.querySelector("#f-go")?.addEventListener("click", async () => {
-      const cwd = (pane.querySelector("#f-cwd") as HTMLInputElement).value.trim();
-      if (!cwd) return toast("pick a folder first");
+    // All three folder panes are in the DOM at once and shown by class, so
+    // switching between them keeps whatever you had already typed in the others.
+    pane.querySelectorAll<HTMLButtonElement>("#f-mode button").forEach((b) => {
+      b.addEventListener("click", () => {
+        foundMode = b.dataset.mode as FolderChoice["mode"];
+        pane.querySelectorAll("#f-mode button").forEach((o) => o.classList.toggle("on", o === b));
+        pane.querySelectorAll<HTMLElement>(".fmode").forEach((pane2) => {
+          pane2.classList.toggle("hidden", pane2.dataset.mode !== foundMode);
+        });
+      });
+    });
+
+    const go = pane.querySelector("#f-go") as HTMLButtonElement;
+    go?.addEventListener("click", async () => {
+      const value = (sel: string) => (pane.querySelector(sel) as HTMLInputElement | null)?.value.trim() ?? "";
+      const folder: FolderChoice =
+        foundMode === "existing"
+          ? { mode: "existing", path: value("#f-cwd") }
+          : foundMode === "new"
+            ? { mode: "new", name: value("#f-newname") }
+            : { mode: "clone", url: value("#f-url") };
+      if (folder.mode === "existing" && !folder.path) return toast("pick a folder first");
+      if (folder.mode === "new" && !folder.name) return toast("name the folder first");
+      if (folder.mode === "clone" && !folder.url) return toast("paste a clone URL first");
+
+      // A clone is the one thing here that takes real time, so the button says
+      // what it is waiting on rather than looking like a click that missed.
+      go.disabled = true;
+      go.textContent = folder.mode === "clone" ? "Cloning…" : "Founding…";
       try {
         const made = await keep.found({
           kind: foundKind,
           art: foundArt,
           name: (pane.querySelector("#f-name") as HTMLInputElement).value,
-          cwd,
+          folder,
           hex: h,
           profileId: (pane.querySelector("#f-profile") as HTMLSelectElement).value,
         });
@@ -1709,6 +1762,10 @@ function render(): void {
         render();
       } catch (e) {
         toast(String((e as Error)?.message ?? e).replace(/^Error invoking remote method '\w+': Error: /, ""));
+      } finally {
+        // Harmless when the pane has already been replaced by the new settlement.
+        go.disabled = false;
+        go.textContent = "Found";
       }
     });
     return;
