@@ -13,6 +13,13 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **A flag pole beside every settlement, and a flag it raises.** A bare pole
+  stands behind each one; when it needs you the pole is drawn waving instead —
+  eight frames off a 4×2 sheet, at about 11fps. Every frame carries its own
+  pole and base, and `tools/prep_assets.py` fits the bare pole onto the frames'
+  square at the frames' scale, so raising the flag moves nothing. It replaces
+  the pole and pennant that were drawn on canvas. The flag is cream for now;
+  colours meaning different things can come later.
 - **Two more ways to give a settlement a folder.** Founding no longer assumes
   the folder already exists: the form offers *On disk* (as before), *New
   folder* — a name, created empty — and *Clone a repo* — a git URL, cloned and

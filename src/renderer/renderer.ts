@@ -52,6 +52,31 @@ const keep = (window as unknown as { keep: Keep }).keep;
 
 const MAP_RADIUS = 14;        // rings of hexes from the cottage
 const SPRITE_FRACTION = 1.15; // sprite width relative to hex width — tuned to the art
+/** Pole height in hex radii, and how many frames the flag waves in. */
+const FLAG_HEIGHT = 1.7;
+/**
+ * Where the pole stands relative to the settlement, in hex radii: left of it,
+ * and set back.
+ *
+ * Set back for two reasons. It reads as standing behind the building, which is
+ * where a pole goes, and it lifts the pole's base clear of the name plate —
+ * the plate is drawn at a fixed pixel size rather than in world units, so a
+ * pole placed to clear it at one zoom would be buried at another. Standing
+ * behind puts it above the plate at every zoom.
+ */
+const FLAG_BESIDE = 1.05;
+const FLAG_BEHIND = 0.5;
+const FLAG_FRAMES = 8;
+const FLAG_FPS = 11;
+/**
+ * Where the shaft sits across the flag sprite, left to right.
+ *
+ * The art is mostly cloth, so the pole itself is nowhere near the middle of the
+ * image — placing the sprite by its centre would stand the pole well right of
+ * where you meant. prep_assets.py prints this as `shaft x` when it fits the
+ * bare pole to the frames; it is that over the sprite's width.
+ */
+const FLAG_SHAFT = 183 / 256;
 const ZOOM_DEFAULT = 0.62;
 const ZOOM_MIN = 0.22;
 const ZOOM_MAX = 2.6;
@@ -684,24 +709,31 @@ function drawSprite(
 }
 
 /** The flag. Until there is needs-you art, it is drawn: a pole and a banner. */
-function drawFlag(cx: number, cy: number, size: number, t: number): void {
-  const bob = Math.sin(t / 260) * size * 0.04;
-  // Clear of the sprite, which stands about 1.2 hex-radii tall.
-  const top = cy - size * 1.5 + bob;
+/**
+ * The pole beside a settlement, and the flag it raises.
+ *
+ * A bare pole stands there always; when the settlement needs you the same pole
+ * is drawn waving, because every frame of the animation carries its own pole
+ * and base. prep_assets.py fits the bare one onto the frames' own square at
+ * the frames' own scale, so the swap moves nothing — the flag simply appears.
+ *
+ * It stands to the left, and the flag flies left, so the cloth waves away from
+ * the building rather than over it.
+ */
+function drawFlagPole(s: Settlement, cx: number, cy: number, size: number, t: number): void {
+  const raised = s.state === "needs_you";
+  const frame = Math.floor(t / (1000 / FLAG_FPS)) % FLAG_FRAMES;
+  const img = sprites[raised ? `flag-${frame}` : "flag-pole"];
+  if (!img) return;
+  const h = size * FLAG_HEIGHT;
+  const w = h * (img.width / img.height);
+  // Clear of the building's edge, and standing on the same line it stands on —
+  // its own art runs to the bottom of its sprite, so that is where the ground is.
+  const shaftX = cx - size * FLAG_BESIDE;
+  const ground = spriteFoot(artOf(s), cy, size) - size * FLAG_BEHIND;
   ctx.save();
-  ctx.strokeStyle = "#f0e4cf";
-  ctx.lineWidth = Math.max(1.5, size * 0.035);
-  ctx.beginPath();
-  ctx.moveTo(cx, top);
-  ctx.lineTo(cx, top + size * 0.5);
-  ctx.stroke();
-  ctx.fillStyle = "#e05a3c";
-  ctx.beginPath();
-  ctx.moveTo(cx, top);
-  ctx.lineTo(cx + size * 0.38, top + size * 0.1);
-  ctx.lineTo(cx, top + size * 0.21);
-  ctx.closePath();
-  ctx.fill();
+  if (s.state === "dormant") ctx.globalAlpha = 0.62;
+  ctx.drawImage(img, shaftX - w * FLAG_SHAFT, ground - h, w, h);
   ctx.restore();
 }
 
@@ -942,8 +974,9 @@ function draw(): void {
       });
       strokeHex(at.x, at.y, size, carrying.ok ? "rgba(240,246,248,.85)" : "rgba(224,90,60,.9)", 2.5);
     }
+    // Behind the building, so anything that leans in is overlapped by it.
+    drawFlagPole(s, dx, dy, size, t);
     drawSprite(artOf(s), dx, dy, size, s.state === "dormant", glows);
-    if (s.state === "needs_you") drawFlag(dx, dy, size, t);
 
     // The plate carries state too: amber when it wants you, washed out when dormant.
     const tint =
@@ -2212,7 +2245,13 @@ window.addEventListener("resize", () => {
 
   await Promise.all([
     loadGround(),
-    ...[...SETTLEMENT_ART.map((a) => a.value), "cottage", "banner"].map(loadSprite),
+    ...[
+      ...SETTLEMENT_ART.map((a) => a.value),
+      "cottage",
+      "banner",
+      "flag-pole",
+      ...Array.from({ length: FLAG_FRAMES }, (_, i) => `flag-${i}`),
+    ].map(loadSprite),
     // Canvas silently falls back if the face is not ready when text is drawn.
     document.fonts.load('21px "Kaushan Script"').catch(() => []),
   ]);

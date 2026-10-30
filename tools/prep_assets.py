@@ -50,7 +50,6 @@ JOBS = [
     ("bounty-board", "bounty-board", 512, True),
     ("library", "library", 512, True),
     ("post-office", "post-office", 512, True),
-    ("flag-pole", "flag-pole", 512, True),
 ]
 
 # Animation sheets: (source stem, output name, columns, rows, frame width, mirror)
@@ -524,6 +523,35 @@ def prepare_ground(width: int = 512) -> None:
     print(f"  ground.json: base + {len(patches)} patches")
 
 
+def plant(frames: "list[Image.Image]") -> "list[Image.Image]":
+    """Slide every frame sideways until they all stand in the same place.
+
+    Generated frames are not registered to each other. In this sheet the flag
+    waves — which is the point — but the pole and its rocks wander too, and a
+    pole that moves is a pole that hops when the loop wraps. The footing is
+    measured on the bottom sliver, where only the base is, and each frame is
+    nudged to the middle of the set. The canvas grows by the worst nudge so
+    nothing slides off the edge.
+    """
+    feet = []
+    for f in frames:
+        px = f.load()
+        w, h = f.size
+        xs = [x for y in range(int(h * 0.92), h) for x in range(w) if px[x, y][3] > 128]
+        feet.append(sum(xs) / len(xs) if xs else w / 2)
+    target = sorted(feet)[len(feet) // 2]
+    shifts = [round(target - c) for c in feet]
+    pad = max(abs(v) for v in shifts)
+    if not pad:
+        return frames
+    out = []
+    for f, dx in zip(frames, shifts):
+        canvas = Image.new("RGBA", (f.width + pad * 2, f.height), (0, 0, 0, 0))
+        canvas.alpha_composite(f, (pad + dx, 0))
+        out.append(canvas)
+    return out
+
+
 def sheet_report(name: str, frames: list[Image.Image]) -> None:
     """Two things you cannot tell by looking at a sheet, and need to know.
 
@@ -567,6 +595,117 @@ def sheet_report(name: str, frames: list[Image.Image]) -> None:
               f"{share}% of the sprite is that neutral, the rest is coloured and would tint too")
 
 
+def shaft_of(img: Image.Image, frac: float = 0.65) -> tuple[float, int, int]:
+    """Where the pole is: (centre x, top y, bottom y).
+
+    Read off a slice low enough to be below the cloth but above the base, so
+    the run it finds is the shaft itself. The top is then the highest pixel in
+    a band around that shaft — the finial — and the bottom is where the whole
+    sprite stands.
+    """
+    px = img.load()
+    w, h = img.size
+    rows = [y for y in range(h) if any(px[x, y][3] > 128 for x in range(w))]
+    top_all, bottom = rows[0], rows[-1]
+    y = int(top_all + (bottom - top_all) * frac)
+
+    runs, start = [], None
+    for x in range(w):
+        on = px[x, y][3] > 128
+        if on and start is None:
+            start = x
+        if not on and start is not None:
+            runs.append((start, x - 1))
+            start = None
+    if start is not None:
+        runs.append((start, w - 1))
+    # A highlight down the pole can split it in two; rejoin anything touching.
+    merged = []
+    for r in runs:
+        if merged and r[0] - merged[-1][1] <= max(3, w // 60):
+            merged[-1] = (merged[-1][0], r[1])
+        else:
+            merged.append(list(r) if False else (r[0], r[1]))
+    merged = [list(m) for m in merged]
+    # The shaft is the run standing over the sprite's footing.
+    feet = [x for x in range(w) if px[x, bottom - 1][3] > 128] or [w // 2]
+    anchor = (min(feet) + max(feet)) / 2
+    lo, hi = min(merged, key=lambda m: abs((m[0] + m[1]) / 2 - anchor))
+    centre = (lo + hi) / 2
+    band = max(2, int(w * 0.04))
+    top = next(
+        yy for yy in range(h)
+        if any(px[x, yy][3] > 128 for x in range(max(0, int(centre - band)), min(w, int(centre + band))))
+    )
+    return centre, top, bottom
+
+
+def median_frame(sheet: str) -> "Path | None":
+    """The frame to measure against: the one standing where most of them do.
+
+    Not frame 0. These are generated, and the first frame of this sheet is the
+    one that sits furthest from the rest — fitting the pole to it would plant
+    the pole where seven of the eight frames disagree.
+    """
+    # Numbered frames only — `flag-*.png` also catches `flag-pole.png`, which
+    # is the file this is being measured for.
+    frames = [q for q in OUT.glob(f"{sheet}-*.png") if q.stem.rsplit("-", 1)[1].isdigit()]
+    paths = sorted(frames, key=lambda q: int(q.stem.rsplit("-", 1)[1]))
+    if not paths:
+        return None
+    feet = []
+    for q in paths:
+        im = Image.open(q).convert("RGBA")
+        px = im.load()
+        w, h = im.size
+        xs = [x for y in range(int(h * 0.92), h) for x in range(w) if px[x, y][3] > 128]
+        feet.append((sum(xs) / len(xs) if xs else w / 2, q))
+    feet.sort(key=lambda t: t[0])
+    return feet[len(feet) // 2][1]
+
+
+def prepare_pole(stem: str = "flag-pole", name: str = "flag-pole", sheet: str = "flag", mirror: bool = True) -> None:
+    """Drop the bare pole into the flag frames' own square, in their own place.
+
+    The two were drawn separately and do not match: the bare pole is slenderer
+    and proportionally taller. Raising the flag swaps one for the other, so
+    what has to agree is where the pole stands and how tall it is — scale it by
+    shaft height, then line up the shaft and the footing. The base comes out a
+    little narrower than the one in the frames, which is the lesser of the
+    mismatches and the one you do not see.
+    """
+    src = SRC / f"{stem}.png"
+    reference = median_frame(sheet)
+    if not src.exists() or reference is None:
+        print(f"  !! cannot fit {stem}: need {src.name} and the {sheet} frames")
+        return
+
+    img = Image.open(src)
+    if img.mode in ("RGBA", "LA") and img.getchannel("A").getextrema()[0] < 250:
+        img = img.convert("RGBA")
+    else:
+        img = key_background(img)
+    box = img.getbbox()
+    if box:
+        img = img.crop(box)
+    if mirror:
+        img = img.transpose(Image.FLIP_LEFT_RIGHT)
+
+    frame = Image.open(reference).convert("RGBA")
+    fx, ftop, fbottom = shaft_of(frame)
+    px_, ptop, pbottom = shaft_of(img)
+
+    scale = (fbottom - ftop) / (pbottom - ptop)
+    sw, sh = max(1, round(img.width * scale)), max(1, round(img.height * scale))
+    img = img.resize((sw, sh), Image.LANCZOS)
+
+    canvas = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    canvas.alpha_composite(img, (round(fx - px_ * scale), round(fbottom - pbottom * scale)))
+    canvas.save(OUT / f"{name}.png", optimize=True)
+    print(f"  {stem}.png -> {name}.png  fitted to {reference.stem} at {canvas.size}"
+          f"  (scaled {scale:.3f}, shaft x {fx:.0f}, foot y {fbottom})")
+
+
 def prepare_sheets() -> None:
     """Slice each animation sheet into one PNG per frame."""
     for stem, name, cols, rows, width, mirror in SHEETS:
@@ -604,6 +743,8 @@ def prepare_sheets() -> None:
             union = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                      max(b[2] for b in boxes), max(b[3] for b in boxes))
             frames = [f.crop(union) for f in frames]
+
+        frames = plant(frames)
 
         height = round(width * frames[0].height / frames[0].width)
         out = []
@@ -650,6 +791,7 @@ def main() -> int:
         flipped = " · mirrored" if mirror else ""
         print(f"  {stem}.png -> {dst.name}  {width}x{height}  ratio {img.width / img.height:.4f}{flipped}")
     prepare_sheets()
+    prepare_pole()
     prepare_ground()
     prepare_banner()
     prepare_parchment()
