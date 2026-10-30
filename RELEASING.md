@@ -41,6 +41,18 @@ npm run install-app        # build and copy into /Applications
 `release/` is gitignored — artifacts belong to the machine that made them, not
 the repo.
 
+`install-app` copies the bundle but **does not restart anything**. If a copy is
+already running, `open -a` just brings that one to the front, so you sit there
+testing the old build and concluding the fix did not work. Quit it first:
+
+```bash
+osascript -e 'tell application "Threadlands" to quit'
+open -a /Applications/Threadlands.app
+```
+
+`ps -eo pid,lstart,comm | grep MacOS/Threadlands` settles the question — the
+start time has to be later than the install.
+
 ### Check the packaged build can actually work
 
 Launching is not evidence. A packaged app starts, draws and notifies perfectly
