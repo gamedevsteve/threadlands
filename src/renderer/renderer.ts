@@ -310,17 +310,36 @@ const perf = { noShadow: false, noPatches: false, noClip: false, noCache: false 
  * full repaint.
  *
  * Chunks are sized in screen pixels, so their canvases stay the same size at
- * every zoom; the zoom is baked into the grid instead, and changing it starts a
- * fresh set.
+ * every zoom; the zoom is baked into the grid instead, and a zoom in motion
+ * draws the set it has scaled until it settles.
  */
 const CHUNK_PX = 384;
 /** How many chunks may be built in one frame before the rest wait their turn. */
 const CHUNK_BUDGET = 1;
 /** Several screenfuls' worth; oldest evicted first. */
 const CHUNK_LIMIT = 48;
+/**
+ * Overlap, in CSS pixels, painted beyond each chunk's own rectangle.
+ *
+ * A chunk's canvas is a whole number of device pixels but lands at a fractional
+ * offset, so sampling its last column blends in the transparent pixel past the
+ * edge and a thin dark line of background shows down every chunk boundary.
+ * Chunks painted wide and drawn overlapping have no boundary to show through:
+ * the ground's base fill is opaque, so whichever is drawn second covers the
+ * strip.
+ */
+const CHUNK_BLEED = 1;
+/** How long the zoom must hold still before the chunks are repainted for it. */
+const SETTLE_MS = 120;
 
 let groundChunks = new Map<string, HTMLCanvasElement>();
-let chunkEra = "";
+/** The hex size the cached chunks were painted at. */
+let chunkSize = 0;
+/** The pixel ratio they were painted at; a change of it voids them outright. */
+let chunkDpr = 0;
+/** The size seen on the last frame, and the time it first appeared. */
+let lastSize = 0;
+let lastSizeAt = 0;
 let chunkBudget = 0;
 
 function invalidateGround(): void {
@@ -421,18 +440,19 @@ function groundChunk(cx: number, cy: number, size: number): HTMLCanvasElement | 
   if (hit) return hit;
   if (chunkBudget <= 0) return null;
 
+  const span = CHUNK_PX + CHUNK_BLEED * 2;
   const c = document.createElement("canvas");
-  c.width = Math.ceil(CHUNK_PX * dpr);
-  c.height = Math.ceil(CHUNK_PX * dpr);
+  c.width = Math.ceil(span * dpr);
+  c.height = Math.ceil(span * dpr);
   const g = c.getContext("2d");
   if (!g) return null;
   chunkBudget--;
 
-  const wx = cx * CHUNK_PX;
-  const wy = cy * CHUNK_PX;
+  const wx = cx * CHUNK_PX - CHUNK_BLEED;
+  const wy = cy * CHUNK_PX - CHUNK_BLEED;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.translate(-wx, -wy);
-  paintGround(g, size, wx, wy, CHUNK_PX, CHUNK_PX);
+  paintGround(g, size, wx, wy, span, span);
 
   groundChunks.set(key, c);
   if (groundChunks.size > CHUNK_LIMIT) {
@@ -460,26 +480,66 @@ function drawGround(size: number): void {
     return;
   }
 
-  // A change of zoom or pixel ratio makes every cached chunk wrong.
-  const era = `${size}|${dpr}`;
-  if (era !== chunkEra) {
-    chunkEra = era;
+  // Chunks bake the zoom in, so a change of zoom makes every one of them
+  // wrong. Repainting them mid-gesture is hopeless: a viewport is a dozen
+  // chunks and only one is built per frame, so the ground arrives a chunk at a
+  // time while the next zoom step voids the lot — which is the flicker.
+  // Instead the chunks already in hand are drawn scaled for as long as the zoom
+  // keeps moving, which reads as the ground zooming with the map, and they are
+  // repainted at the true size once it has held still.
+  const now = performance.now();
+  if (size !== lastSize) {
+    lastSize = size;
+    lastSizeAt = now;
+  }
+  if (dpr !== chunkDpr) {
+    chunkDpr = dpr;
     invalidateGround();
   }
+  if (!groundChunks.size || (size !== chunkSize && now - lastSizeAt >= SETTLE_MS)) {
+    invalidateGround();
+    chunkSize = size;
+  }
+  // Still waiting for the zoom to hold still: keep asking for frames so the
+  // repaint lands the moment it does, not on the next heartbeat.
+  if (size !== chunkSize) invalidate();
 
-  chunkBudget = CHUNK_BUDGET;
-  const x0 = Math.floor(vx / CHUNK_PX);
-  const x1 = Math.floor((vx + vw) / CHUNK_PX);
-  const y0 = Math.floor(vy / CHUNK_PX);
-  const y1 = Math.floor((vy + vh) / CHUNK_PX);
+  // What the cached size has to be scaled by to stand in for the size wanted.
+  const k = size / chunkSize;
+  const step = CHUNK_PX * k;
+  const bleed = CHUNK_BLEED * k;
+  const x0 = Math.floor(vx / step);
+  const x1 = Math.floor((vx + vw) / step);
+  const y0 = Math.floor(vy / step);
+  const y1 = Math.floor((vy + vh) / step);
+
+  // A repaint for a settled zoom takes the whole viewport in one frame: it
+  // costs what one uncached paint costs, and trickling it in would mean a run
+  // of half-cached frames instead of one slow one. A long drag keeps the frame
+  // budget it was tuned for.
+  const refill = groundChunks.size === 0;
+  chunkBudget = refill ? (x1 - x0 + 1) * (y1 - y0 + 1) : k === 1 ? CHUNK_BUDGET : 0;
 
   for (let cy = y0; cy <= y1; cy++) {
     for (let cx = x0; cx <= x1; cx++) {
+      const px = cx * step;
+      const py = cy * step;
       const chunk = groundChunk(cx, cy, size);
-      if (chunk) ctx.drawImage(chunk, cx * CHUNK_PX, cy * CHUNK_PX, CHUNK_PX, CHUNK_PX);
-      // Over budget: the water shows for one frame and it arrives on the next,
-      // which beats a long drag stuttering.
-      else invalidate();
+      if (chunk) {
+        ctx.drawImage(chunk, px - bleed, py - bleed, step + bleed * 2, step + bleed * 2);
+        continue;
+      }
+      // Nothing cached and nothing to be had this frame — mid-zoom, or past the
+      // frame's budget on a long drag. Paint this patch of ground straight to
+      // the screen so water never shows through where ground belongs; the cache
+      // catches up on a later frame.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(px, py, step, step);
+      ctx.clip();
+      paintGround(ctx, size, px, py, step, step);
+      ctx.restore();
+      invalidate();
     }
   }
   ctx.restore();
