@@ -544,7 +544,6 @@ have it group and label, never collapse the finding itself.
 | Banner raised — work finished | `SDKResultMessage` |
 | Background task reports in | `SDKTaskNotificationMessage` |
 | Revisit a dormant settlement | `resume` · `getSessionMessages()` |
-| Send out settlers | `forkSession(id, { upToMessageId })` |
 | Recall the governor | `interrupt()` |
 | City walls (trust level) | `allowedTools` · `permissionMode` |
 | Fenced borders | `permissions.blockReadsOutsideWorkingDirectories` |
@@ -583,7 +582,7 @@ are untouched.
 | **Phase 2** — the map | ✅ done | grid, camera, founding, moving, ground, name plates |
 | **Phase 3** — the governor's hall | 🟡 most of it | transcript, collapsible tool runs, permission card, Open Terminal. No diffs, no *Allow always*, no workers |
 | **Phase 4** — a living realm | 🟡 partly | notifications, dormant dimming, spend and tokens per settlement, editable cottage. No tile animation, no routes, no `listSessions` import |
-| **Phase 5** — settlers and walls | ⬜ not started | |
+| **Phase 5** — what daily use asks for | ⬜ not started | settlers tabled, see §12 |
 | **Phase 6** — messengers | ⬜ not started | |
 
 Built along the way, and not in the original plan:
@@ -838,16 +837,16 @@ and the cottage is editable — realm defaults for model, permission mode, idle 
 ceiling and base folder. Not done: spend on the tile rather than only in the panel, chimney smoke and lanterns, the trade-route overlay, and the
 first-launch offer to found a city for every session `listSessions()` finds.
 
-### Phase 5 — Settlers and walls · open-ended
+### Phase 5 — What daily use asks for · open-ended
 
-Everything that earns its place after daily use. `forkSession` as settlers leaving a city
-to try a branch on an adjacent hex. Promotion from camp to city. Keyboard nav between
-flagged settlements. Decay on camps untouched for weeks.
+Everything that earns its place after daily use. Promotion from camp to city. Keyboard nav
+between flagged settlements. Decay on camps untouched for weeks.
 
 **Gate:** none. This is the part that stays fun.
 
 **Status: not started.** Nothing here is blocked; it is all waiting on daily use to say which
-parts earn their place.
+parts earn their place. Settlers — `forkSession` as a branch tried on an adjacent hex — were
+the headline of this phase and have been **tabled**; see §12.
 
 ### Phase 6 — Messengers · 3–4 evenings
 
@@ -1027,17 +1026,27 @@ Written down so they stop being tempting.
 - Non-Claude providers
 - Worker sprites on the map
 - Anything multiplayer
+- Settlers — forking a session onto an adjacent hex
 
 Two of those were meant to be deliberate half-measures rather than deferrals. **Non-Claude
 providers**: the driver seam goes in at Phase 1, the second driver does not. **Worker
 sprites**: the many-worker model goes in at Phase 1, the swarm-around-the-tile rendering does
 not. Both are structural if you build them early and a rewrite if you don't.
 
-*Neither half-measure was built.* `Settlement` has a `workers[]` field and nothing fills it,
+*Neither half-measure was built*, and this paragraph used to overstate one of them.
+`Settlement` has no `workers[]` field at all — it was never added, not added and left empty —
 and the supervisor talks to the SDK directly with no `SettlementDriver` interface between.
 Both were deferred on the same reasoning — nothing above them existed to constrain their shape
 — which is defensible for the driver seam and a growing debt for workers, since every new
 field on `Settlement` is one more thing a worker would have to grow too.
+
+**Settlers** came onto this list late, off the top of Phase 5. The SDK offers the move —
+`forkSession(id, { upToMessageId })` would branch a city's transcript onto a neighbouring hex
+— and it is one of the prettier things the metaphor could do. It is cut because forking is
+not how this gets used: the branch rarely wants trying, so the feature would be built for a
+screenshot rather than a day's work. Two settlements sharing a `cwd` already covers running
+unrelated threads on one repo. If forking becomes a habit, this comes back cheaply — nothing
+else is shaped around its absence.
 
 Roads between cities came off this list — they turned out to be a view of real permission
 state (§5, Folder scope) rather than decoration.
