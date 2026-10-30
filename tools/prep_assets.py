@@ -13,6 +13,7 @@ Run:  python3 tools/prep_assets.py
 from collections import deque
 from pathlib import Path
 import sys
+import zlib
 
 from PIL import Image
 
@@ -20,21 +21,56 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "assets"
 OUT = ROOT / "src" / "assets"
 
-# (source stem, output name, target width)
+# (source stem, output name, target width, mirror)
 #
 # Every variant is prepped: a settlement picks its own art when it is founded,
 # so all three of each kind ship. The output names are what `art` holds on a
 # settlement, and `SETTLEMENT_ART` in src/shared/types.ts has to list the same
 # ones — a name in one and not the other is art that cannot be chosen, or a
 # choice with no art behind it.
+#
+# `mirror` flips the art left-to-right on the way through. The settlements were
+# drawn lit from one side and these later pieces from the other, so mirroring
+# them is what makes a tile look like it belongs on the same map. It is a plain
+# horizontal flip — anything with legible writing on it will read backwards, so
+# check the output rather than trusting the flag.
+#
+# A missing source is reported and skipped, so a row can be written before the
+# art for it exists.
 JOBS = [
-    ("camp-1", "camp-1", 512),
-    ("camp-2", "camp-2", 512),
-    ("camp-3", "camp-3", 512),
-    ("city-castle-1", "city-1", 512),
-    ("city-castle-2", "city-2", 512),
-    ("city-castle-3", "city-3", 512),
-    ("cottage", "cottage", 512),
+    ("camp-1", "camp-1", 512, False),
+    ("camp-2", "camp-2", 512, False),
+    ("camp-3", "camp-3", 512, False),
+    ("city-castle-1", "city-1", 512, False),
+    ("city-castle-2", "city-2", 512, False),
+    ("city-castle-3", "city-3", 512, False),
+    ("cottage", "cottage", 512, False),
+    # Drawn but not yet used by anything. Prepped so they are ready and so the
+    # pipeline is the only place that has ever touched them.
+    ("bounty-board", "bounty-board", 512, True),
+    ("library", "library", 512, True),
+    ("post-office", "post-office", 512, True),
+    ("flag-pole", "flag-pole", 512, True),
+]
+
+# Animation sheets: (source stem, output name, columns, rows, frame width, mirror)
+#
+# Sliced into `name-0.png` … `name-N.png`, one file per frame, which is what
+# the renderer's sprite loader already understands.
+#
+# Three things a sheet needs that a single sprite does not:
+#
+#   * Frames are cropped to the union of every frame's bounds, never each to
+#     its own. Cropping frame by frame recentres each one and the animation
+#     judders in place instead of playing.
+#   * The mirror is applied per frame. Flipping the sheet whole would also
+#     reverse the order the frames play in.
+#   * The flag is drawn white so it can be tinted at draw time — white
+#     multiplied by a colour is that colour, and the greys stay as shading.
+#     Nothing here may touch its colour, and `--sheet-report` says whether the
+#     art really is neutral enough for that to work.
+SHEETS = [
+    ("flag", "flag", 8, 1, 256, True),
 ]
 
 # How close to the corner colour still counts as background.
@@ -204,7 +240,11 @@ def bake_patches(src: Image.Image, name: str, weight: int) -> list[dict]:
     for si, (canvas, fill) in enumerate(PATCH_SIZES):
         field = tiled(src, canvas)
         for j in range(SHAPES_PER_SIZE):
-            mask = blob_mask(canvas, fill, (hash(name) & 0xFFFF) + si * 7919 + j * 104729)
+            # crc32, not hash(): Python salts string hashing per process, so
+            # hash() reshuffled every patch on every run and each `npm run
+            # assets` produced twenty files of diff that meant nothing.
+            seed = (zlib.crc32(name.encode()) & 0xFFFF) + si * 7919 + j * 104729
+            mask = blob_mask(canvas, fill, seed)
             patch = field.convert("RGBA")
             patch.putalpha(mask)
             box = patch.getbbox()
@@ -484,9 +524,69 @@ def prepare_ground(width: int = 512) -> None:
     print(f"  ground.json: base + {len(patches)} patches")
 
 
+def prepare_sheets() -> None:
+    """Slice each animation sheet into one PNG per frame."""
+    for stem, name, cols, rows, width, mirror in SHEETS:
+        src = SRC / f"{stem}.png"
+        if not src.exists():
+            print(f"  !! missing {src}")
+            continue
+        sheet = Image.open(src)
+        if sheet.width % cols or sheet.height % rows:
+            print(f"  !! {stem}.png is {sheet.size}, which {cols}x{rows} does not divide evenly")
+            continue
+        fw, fh = sheet.width // cols, sheet.height // rows
+
+        keyed = sheet.mode in ("RGBA", "LA") and sheet.getchannel("A").getextrema()[0] < 250
+        frames = []
+        for i in range(cols * rows):
+            x, y = (i % cols) * fw, (i // cols) * fh
+            f = sheet.crop((x, y, x + fw, y + fh))
+            frames.append(f.convert("RGBA") if keyed else key_background(f))
+        if keyed:
+            print(f"  {stem}.png has its own alpha — keying skipped")
+        else:
+            # A white flag flattened onto a pale background is the one case the
+            # flood fill cannot survive: it cannot tell the art from the paper.
+            print(f"  !! {stem}.png is opaque, so the background was keyed by colour."
+                  f" If the art is white on white, check the frames before trusting them.")
+
+        # One box for every frame, so the flag stays nailed to its pole.
+        boxes = [f.getbbox() for f in frames]
+        boxes = [b for b in boxes if b]
+        if boxes:
+            union = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+                     max(b[2] for b in boxes), max(b[3] for b in boxes))
+            frames = [f.crop(union) for f in frames]
+
+        height = round(width * frames[0].height / frames[0].width)
+        for i, f in enumerate(frames):
+            f = f.resize((width, height), Image.LANCZOS)
+            # Per frame, so the order plays forwards.
+            if mirror:
+                f = f.transpose(Image.FLIP_LEFT_RIGHT)
+            f.save(OUT / f"{name}-{i}.png", optimize=True)
+
+        # Is it actually tintable? Multiply only reads as a colour change if the
+        # art is neutral; a sheet with real colour in it will come out muddy.
+        rgb = frames[0].convert("RGBA")
+        px = rgb.load()
+        spread, lit = 0, 0
+        for yy in range(0, rgb.height, 3):
+            for xx in range(0, rgb.width, 3):
+                r, g, b, a = px[xx, yy]
+                if a < 200:
+                    continue
+                lit += 1
+                spread = max(spread, max(r, g, b) - min(r, g, b))
+        neutral = "neutral — multiply will tint cleanly" if spread <= 16 else f"has colour (spread {spread}) — multiply will muddy it"
+        print(f"  {stem}.png -> {name}-0..{len(frames) - 1}.png  {width}x{height} each"
+              f"{' · mirrored' if mirror else ''}  ·  {neutral}")
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
-    for stem, name, width in JOBS:
+    for stem, name, width, mirror in JOBS:
         src = SRC / f"{stem}.png"
         if not src.exists():
             print(f"  !! missing {src}")
@@ -505,9 +605,15 @@ def main() -> int:
             img = img.crop(box)
         height = round(width * img.height / img.width)
         img = img.resize((width, height), Image.LANCZOS)
+        # Last, so what is written is what you look at — the crop and the
+        # downscale both work the same either way round.
+        if mirror:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
         dst = OUT / f"{name}.png"
         img.save(dst, optimize=True)
-        print(f"  {stem}.png -> {dst.name}  {width}x{height}  ratio {img.width / img.height:.4f}")
+        flipped = " · mirrored" if mirror else ""
+        print(f"  {stem}.png -> {dst.name}  {width}x{height}  ratio {img.width / img.height:.4f}{flipped}")
+    prepare_sheets()
     prepare_ground()
     prepare_banner()
     prepare_parchment()
