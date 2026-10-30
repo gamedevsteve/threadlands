@@ -70,7 +70,7 @@ JOBS = [
 #     Nothing here may touch its colour, and `--sheet-report` says whether the
 #     art really is neutral enough for that to work.
 SHEETS = [
-    ("flag", "flag", 8, 1, 256, True),
+    ("flag", "flag", 4, 2, 256, True),
 ]
 
 # How close to the corner colour still counts as background.
@@ -533,8 +533,10 @@ def prepare_sheets() -> None:
             continue
         sheet = Image.open(src)
         if sheet.width % cols or sheet.height % rows:
-            print(f"  !! {stem}.png is {sheet.size}, which {cols}x{rows} does not divide evenly")
-            continue
+            # A pixel or two left over is nothing; say so and carry on rather
+            # than refusing a sheet that is fine.
+            print(f"  .. {stem}.png is {sheet.size}, which {cols}x{rows} leaves"
+                  f" {sheet.width % cols}x{sheet.height % rows} over — trimming it")
         fw, fh = sheet.width // cols, sheet.height // rows
 
         keyed = sheet.mode in ("RGBA", "LA") and sheet.getchannel("A").getextrema()[0] < 250
@@ -554,6 +556,20 @@ def prepare_sheets() -> None:
         # One box for every frame, so the flag stays nailed to its pole.
         boxes = [f.getbbox() for f in frames]
         boxes = [b for b in boxes if b]
+
+        # How evenly the art sits in its cells. Generated frames are not laid
+        # out on a grid by anything that cares, and a flag whose art wanders
+        # from cell to cell will crawl around its pole as it plays. The union
+        # crop keeps every frame in one coordinate space, so this is drift you
+        # will see, not drift it corrects.
+        if len(boxes) > 1:
+            drift = [max(b[k] for b in boxes) - min(b[k] for b in boxes) for k in range(4)]
+            widths = {(b[2] - b[0], b[3] - b[1]) for b in boxes}
+            verdict = "even" if max(drift) <= max(2, fw // 50) else f"uneven — worst edge moves {max(drift)}px of {fw}"
+            print(f"  {stem}.png frames: {verdict}"
+                  f"  (edges drift L{drift[0]} T{drift[1]} R{drift[2]} B{drift[3]},"
+                  f" {len(widths)} distinct content size{'' if len(widths) == 1 else 's'})")
+
         if boxes:
             union = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                      max(b[2] for b in boxes), max(b[3] for b in boxes))

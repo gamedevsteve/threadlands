@@ -1078,5 +1078,19 @@ In the order that makes the next thing possible.
    it.
 6. **Grants and routes in the UI**, once walls exist underneath them.
 
-Assets still needed: a library sprite, a post sprite, and needs-you variants of camp and city
-— the flag is drawn on canvas until those exist.
+Assets still needed, and the pipeline is ready for all of them (`tools/prep_assets.py`, which
+reports each one as missing until it lands): `library`, `post-office`, `bounty-board`,
+`flag-pole` and `flag`. All five mirror on the way through, because the settlements were drawn
+lit from one side and these from the other.
+
+**How the flag is meant to work.** A `flag-pole` stands beside every city, bare. When the city
+needs you, the bare pole is swapped for the waving flag — `flag` is eight frames of animation
+on a 4×2 sheet, sliced to `flag-0.png` … `flag-7.png`. It is drawn white so the map can tint
+it by multiplying: white takes the colour exactly and the greys stay as shading, which is one
+sprite for every state that ever needs a colour of its own rather than one sprite per colour.
+Until the art lands, the flag is drawn on canvas.
+
+The frames are generated, so they are not guaranteed to sit evenly in their cells. The prep
+run reports the drift and the slicer crops every frame to one shared box, so what plays is
+whatever evenness the art has — a flag that wanders will wander around its pole. Check that
+line before wiring it up.
