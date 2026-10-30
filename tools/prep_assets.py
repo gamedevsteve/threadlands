@@ -21,11 +21,19 @@ SRC = ROOT / "assets"
 OUT = ROOT / "src" / "assets"
 
 # (source stem, output name, target width)
-# (source stem, output name, target width). Swapping a sprite is a one-line
-# change here; the alternates sit in assets/ unprepped until they are chosen.
+#
+# Every variant is prepped: a settlement picks its own art when it is founded,
+# so all three of each kind ship. The output names are what `art` holds on a
+# settlement, and `SETTLEMENT_ART` in src/shared/types.ts has to list the same
+# ones — a name in one and not the other is art that cannot be chosen, or a
+# choice with no art behind it.
 JOBS = [
-    ("camp-1", "camp", 512),
-    ("city-castle-1", "city", 512),
+    ("camp-1", "camp-1", 512),
+    ("camp-2", "camp-2", 512),
+    ("camp-3", "camp-3", 512),
+    ("city-castle-1", "city-1", 512),
+    ("city-castle-2", "city-2", 512),
+    ("city-castle-3", "city-3", 512),
     ("cottage", "cottage", 512),
 ]
 

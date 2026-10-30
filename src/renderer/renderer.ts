@@ -6,7 +6,7 @@
  */
 import { hexCorners, hexDistance, hexEq, hexSpiral, hexToPixel, pixelToHex } from "./hex.js";
 import { marked } from "marked";
-import { NOTIFY_WHEN, PERMISSION_MODES } from "../shared/types.js";
+import { NOTIFY_WHEN, PERMISSION_MODES, SETTLEMENT_ART, artFor, defaultArt } from "../shared/types.js";
 import type {
   AccountBudget,
   ModelChoice,
@@ -14,11 +14,13 @@ import type {
   PermissionModeValue,
   Realm,
   Settlement,
+  SettlementArt,
+  SettlementKind,
 } from "../shared/types.js";
 
 type Keep = {
   getRealm(): Promise<Realm>;
-  found(i: { kind: "camp" | "city"; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Promise<Settlement>;
+  found(i: { kind: SettlementKind; art: SettlementArt; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Promise<Settlement>;
   raze(id: string): Promise<void>;
   move(id: string, hex: { q: number; r: number }): Promise<void>;
   send(id: string, text: string): Promise<void>;
@@ -35,6 +37,7 @@ type Keep = {
   models(): Promise<ModelChoice[]>;
   setModel(id: string, model: string | null): Promise<void>;
   setPermissionMode(id: string, mode: PermissionModeValue | null): Promise<void>;
+  setArt(id: string, art: SettlementArt): Promise<void>;
   onModels(cb: (m: ModelChoice[]) => void): void;
   toggleMaximize(): Promise<boolean>;
   onWindowState(cb: (big: boolean) => void): void;
@@ -61,6 +64,21 @@ let cottageOpen = false;
 let camera = { x: 0, y: 0, zoom: ZOOM_DEFAULT };
 let hover: { q: number; r: number } | null = null;
 let founding: { q: number; r: number } | null = null;
+/**
+ * The build tool, armed. Set by the palette, cleared when the tile is placed
+ * or the tool is put down; while it holds something the map shows a ghost of
+ * it under the pointer and the next empty tile you click becomes it.
+ */
+let building: { kind: SettlementKind; art: SettlementArt } | null = null;
+/**
+ * What the founding form currently has chosen.
+ *
+ * Kept here rather than read off the form, because changing the house has to
+ * repaint the ghost on the map and relight the tiles without replacing the
+ * form — a folder you had already typed would go with it.
+ */
+let foundKind: SettlementKind = "camp";
+let foundArt: SettlementArt = "camp-1";
 let budgets: AccountBudget[] = [];
 let budgetsLoading = false;
 let models: ModelChoice[] = [];
@@ -134,6 +152,13 @@ const composer = document.getElementById("composer")!;
 const promptEl = document.getElementById("prompt") as HTMLTextAreaElement;
 const hint = document.getElementById("hint")!;
 const toastEl = document.getElementById("toast")!;
+const paletteEl = document.getElementById("palette")!;
+const buildBtn = document.getElementById("go-build")!;
+
+/** The sprite a settlement draws as, whatever its stored house turns out to be. */
+function artOf(s: Settlement): SettlementArt {
+  return artFor(s.kind, s.art);
+}
 
 const sprites: Record<string, HTMLImageElement> = {};
 function loadSprite(name: string): Promise<void> {
@@ -811,6 +836,16 @@ function draw(): void {
     } else {
       strokeHex(x, y, size, "rgba(240,246,248,.6)", 2);
     }
+    // What you are about to raise, standing where it would stand. A ghost is
+    // worth more than a label here: the houses differ by silhouette, and this
+    // is the only place you see one at map scale before committing to it.
+    const ghost = founding ? foundArt : building?.art;
+    if (ghost) {
+      ctx.save();
+      ctx.globalAlpha = 0.46;
+      drawSprite(ghost, x, y, size, false);
+      ctx.restore();
+    }
   }
 
   // cottage
@@ -903,7 +938,7 @@ function draw(): void {
       });
       strokeHex(at.x, at.y, size, carrying.ok ? "rgba(240,246,248,.85)" : "rgba(224,90,60,.9)", 2.5);
     }
-    drawSprite(s.kind, dx, dy, size, s.state === "dormant", glows);
+    drawSprite(artOf(s), dx, dy, size, s.state === "dormant", glows);
     if (s.state === "needs_you") drawFlag(dx, dy, size, t);
 
     // The plate carries state too: amber when it wants you, washed out when dormant.
@@ -915,7 +950,7 @@ function draw(): void {
       s.id === selected ||
       s.state === "needs_you" ||
       (!!hover && hexEq(hover, s.hex));
-    const foot = spriteFoot(s.kind, dy, size);
+    const foot = spriteFoot(artOf(s), dy, size);
     if (worthShowing) plates.push(() => nameplate(s.name, dx, foot, tint, ink));
   }
 
@@ -928,7 +963,7 @@ function draw(): void {
       const p = hexToPixel(s.hex, size);
       const { x, y } = worldToScreen(p.x, p.y);
       const tint = s.state === "needs_you" ? "#ffb08a" : s.state === "dormant" ? "#b9bfbd" : "#fff6e2";
-      nameplate(s.name, x, spriteFoot(s.kind, y, size), tint, s.state === "dormant" ? "#4a5356" : "#2d2112");
+      nameplate(s.name, x, spriteFoot(artOf(s), y, size), tint, s.state === "dormant" ? "#4a5356" : "#2d2112");
     }
   }
 
@@ -1181,6 +1216,11 @@ function clickHex(h: { q: number; r: number }): void {
   } else {
     selected = null;
     founding = h;
+    // An armed build tool has already answered the first two questions, so the
+    // form opens on the house you picked rather than back on the default.
+    foundKind = building?.kind ?? "camp";
+    foundArt = building?.art ?? defaultArt(foundKind);
+    setBuilding(null);
   }
   render();
 }
@@ -1320,14 +1360,51 @@ function renderCottage(): string {
     <div class="btns"><button class="primary" id="d-save">Save</button></div>`;
 }
 
+/**
+ * One house, as the blank tile with its art laid inside the frame.
+ *
+ * The frame is the same slate the rail buttons are cut from, so a house reads
+ * as something you pick up rather than a picture of a building.
+ */
+function artTile(kind: SettlementKind, art: SettlementArt, chosen: boolean): string {
+  const def = SETTLEMENT_ART.find((a) => a.value === art);
+  if (!def) return "";
+  return `<button class="choice${chosen ? " on" : ""}" data-kind="${kind}" data-art="${art}"
+      title="${esc(def.label)} ${kind}" aria-pressed="${chosen}">
+      <span class="tile">
+        <img class="frame" src="./assets/blank.png" alt="" />
+        <img class="art" src="./assets/${art}.png" alt="" />
+      </span>
+      <span class="cap">${esc(def.label)}</span>
+    </button>`;
+}
+
+/** Every house a kind can be built in, with one of them lit. */
+function artChoices(kind: SettlementKind, chosen: string): string {
+  return SETTLEMENT_ART.filter((a) => a.kind === kind)
+    .map((a) => artTile(kind, a.value, a.value === chosen))
+    .join("");
+}
+
+function renderPalette(): string {
+  const d = realm.defaults;
+  return `<h3>Camps<span>short work · reaped after ${d.campIdleMinutes}m idle</span></h3>
+    <div class="choices">${artChoices("camp", building?.kind === "camp" ? building.art : "")}</div>
+    <h3>Cities<span>a long project · kept warm for ${d.cityIdleMinutes}m</span></h3>
+    <div class="choices">${artChoices("city", building?.kind === "city" ? building.art : "")}</div>`;
+}
+
 function renderFounding(h: { q: number; r: number }): string {
   return `<h2>Found a settlement</h2>
     <p class="muted" style="margin-top:0">Empty ground at <span class="mono">${h.q}, ${h.r}</span>.</p>
     <label>Kind</label>
     <select id="f-kind">
-      <option value="camp">Camp — short work, reaped quickly</option>
-      <option value="city">City — a long project, kept warm</option>
+      <option value="camp"${foundKind === "camp" ? " selected" : ""}>Camp — short work, reaped quickly</option>
+      <option value="city"${foundKind === "city" ? " selected" : ""}>City — a long project, kept warm</option>
     </select>
+    <label>House</label>
+    <div class="choices" id="f-art">${artChoices(foundKind, foundArt)}</div>
+    <p class="muted hint">Looks only. Build a run of related projects in the same house and the map groups them for you.</p>
     <label>Folder</label>
     <div style="display:flex;gap:6px"><input id="f-cwd" placeholder="${esc(realm.defaults.baseFolder ?? "/path/to/project")}" value="${esc(realm.defaults.baseFolder ?? "")}" /><button id="f-pick">Browse</button></div>
     <label>Name</label><input id="f-name" placeholder="defaults to the folder name" />
@@ -1496,6 +1573,9 @@ function renderSettlement(s: Settlement): string {
           realm.defaults.model ? `Realm default — ${modelLabel(realm.defaults.model)}` : "Realm default",
         )}</select>
 
+        <label>House</label>
+        <div class="choices" id="s-art">${artChoices(s.kind, artOf(s))}</div>
+
         ${s.error ? `<div class="msg system">${esc(s.error)}</div>` : ""}
         <div class="razerow">${renderRaze(s)}</div>
       </div>
@@ -1581,12 +1661,37 @@ function render(): void {
       const p = await keep.pickFolder(el.value.trim() || realm.defaults.baseFolder);
       if (p) el.value = p;
     });
+    // The form is never re-rendered while it is open — a kind or a house would
+    // take a half-typed folder with it — so these edit it in place instead.
+    const artRow = pane.querySelector<HTMLElement>("#f-art");
+    const wireArt = () => {
+      artRow?.querySelectorAll<HTMLButtonElement>(".choice").forEach((b) => {
+        b.addEventListener("click", () => {
+          foundArt = artFor(foundKind, b.dataset.art);
+          artRow.querySelectorAll(".choice").forEach((o) => {
+            const on = o === b;
+            o.classList.toggle("on", on);
+            o.setAttribute("aria-pressed", String(on));
+          });
+          invalidate();   // the ghost on the map is the real preview
+        });
+      });
+    };
+    wireArt();
+    pane.querySelector("#f-kind")?.addEventListener("change", (e) => {
+      foundKind = (e.target as HTMLSelectElement).value as SettlementKind;
+      foundArt = defaultArt(foundKind);
+      if (artRow) artRow.innerHTML = artChoices(foundKind, foundArt);
+      wireArt();
+      invalidate();
+    });
     pane.querySelector("#f-go")?.addEventListener("click", async () => {
       const cwd = (pane.querySelector("#f-cwd") as HTMLInputElement).value.trim();
       if (!cwd) return toast("pick a folder first");
       try {
         const made = await keep.found({
-          kind: (pane.querySelector("#f-kind") as HTMLSelectElement).value as "camp" | "city",
+          kind: foundKind,
+          art: foundArt,
           name: (pane.querySelector("#f-name") as HTMLInputElement).value,
           cwd,
           hex: h,
@@ -1605,7 +1710,9 @@ function render(): void {
 
   if (!s) {
     pane.innerHTML = `<div class="empty">
-      <p>Click empty ground to found a camp or a city. Click the cottage for realm defaults and what each account has left.</p>
+      ${building
+        ? `<p><b>${esc(SETTLEMENT_ART.find((a) => a.value === building!.art)?.label ?? "")} ${esc(building.kind)}</b> in hand. Click empty ground to place it, or the build tool again to put it down.</p>`
+        : "<p>Click empty ground to found a camp or a city, or use the build tool to choose a house first. Click the cottage for realm defaults and what each account has left.</p>"}
       <p>Two fingers to pan, pinch or <kbd>⌘</kbd>+scroll to zoom — or drag with a mouse.
       <kbd>+</kbd> <kbd>-</kbd> zoom, <kbd>0</kbd> recentres. Drag a settlement to move it.</p>
       <p><kbd>Enter</kbd> sends a prompt, <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.</p>
@@ -1678,6 +1785,24 @@ function render(): void {
     // Takes effect on the next thing the governor says, mid-conversation.
     void keep.setModel(s.id, value);
     toast(value ? `now using ${modelLabel(value)}` : "following the realm default");
+  });
+  // Rebuilding in another house touches nothing but the sprite, so it is safe
+  // mid-conversation. The tiles are lit here rather than waiting for the push
+  // back from the Keep, so the click lands immediately.
+  const sArt = pane.querySelector<HTMLElement>("#s-art");
+  sArt?.querySelectorAll<HTMLButtonElement>(".choice").forEach((b) => {
+    b.addEventListener("click", () => {
+      const art = artFor(s.kind, b.dataset.art);
+      if (art === artOf(s)) return;
+      s.art = art;
+      sArt.querySelectorAll(".choice").forEach((o) => {
+        const on = o === b;
+        o.classList.toggle("on", on);
+        o.setAttribute("aria-pressed", String(on));
+      });
+      invalidate();
+      void keep.setArt(s.id, art);
+    });
   });
   pane.querySelector("#allow")?.addEventListener("click", () => void keep.answerFlag(s.id, true));
   pane.querySelector("#deny")?.addEventListener("click", () => void keep.answerFlag(s.id, false));
@@ -1767,6 +1892,10 @@ function cycleMode(): void {
 }
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && (building || !paletteEl.classList.contains("hidden"))) {
+    setBuilding(null);
+    return;
+  }
   if (e.key === "Escape" && detailsOpen) {
     detailsOpen = false;
     const sheet = pane.querySelector<HTMLElement>("#details");
@@ -1791,6 +1920,42 @@ promptEl.addEventListener("keydown", (e) => {
   e.preventDefault();
   void sendPrompt();
 });
+/**
+ * Arm the build tool, or put it down.
+ *
+ * The palette is only up while you are choosing; once a house is in hand it
+ * closes and gets out of the way of the map you are about to click.
+ */
+function setBuilding(next: { kind: SettlementKind; art: SettlementArt } | null): void {
+  building = next;
+  paletteEl.classList.add("hidden");
+  buildBtn.classList.toggle("on", !!next);
+  canvas.classList.toggle("placing", !!next);
+  invalidate();
+  // The idle pane is the only one that says what is in hand; every other pane
+  // has its own job and the lit tool plus the ghost say it well enough there.
+  if (!founding && !selected && !cottageOpen) render();
+}
+
+function openPalette(): void {
+  paletteEl.innerHTML = renderPalette();
+  paletteEl.querySelectorAll<HTMLButtonElement>(".choice").forEach((b) => {
+    b.addEventListener("click", () => {
+      const kind = b.dataset.kind as SettlementKind;
+      setBuilding({ kind, art: artFor(kind, b.dataset.art) });
+      toast("click empty ground to place it");
+    });
+  });
+}
+
+buildBtn.addEventListener("click", () => {
+  if (building) return setBuilding(null);
+  const opening = paletteEl.classList.contains("hidden");
+  paletteEl.classList.toggle("hidden", !opening);
+  buildBtn.classList.toggle("on", opening);
+  if (opening) openPalette();
+});
+
 document.getElementById("go-home")!.addEventListener("click", () => {
   // Zoom back out as well as recentring. Centred at full zoom the cottage is
   // 400-odd pixels across and fills the view, so "home" looked like it had
@@ -1935,7 +2100,11 @@ window.addEventListener("resize", () => {
     void refreshBudgets();
   },
   list: () => [...byId.values()].map((s) => ({ id: s.id, name: s.name, state: s.state })),
-  state: () => ({ selected, cottageOpen, founding, count: byId.size, camera, hover, carrying }),
+  state: () => ({ selected, cottageOpen, founding, building, count: byId.size, camera, hover, carrying }),
+  /** Arm the build tool without the palette, for driving a test. */
+  build: (kind: SettlementKind = "camp", art?: string) =>
+    setBuilding({ kind, art: artFor(kind, art) }),
+  palette: () => buildBtn.click(),
   /** The renderer's own copy of a settlement — mutate it to stage a view. */
   get: (id?: string) => byId.get(id ?? selected ?? [...byId.keys()][0] ?? ""),
   zoom: (z: number) => { camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)); },
@@ -1957,7 +2126,7 @@ window.addEventListener("resize", () => {
 
   await Promise.all([
     loadGround(),
-    ...["camp", "city", "cottage", "banner"].map(loadSprite),
+    ...[...SETTLEMENT_ART.map((a) => a.value), "cottage", "banner"].map(loadSprite),
     // Canvas silently falls back if the face is not ready when text is drawn.
     document.fonts.load('21px "Kaushan Script"').catch(() => []),
   ]);

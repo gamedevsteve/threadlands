@@ -11,6 +11,7 @@ import { RealmStore } from "./realm.js";
 import { Supervisor } from "./supervisor.js";
 import { probeAccount } from "./usage.js";
 import { listModels } from "./models.js";
+import { artFor } from "../shared/types.js";
 import type {
   AccountBudget,
   ModelChoice,
@@ -201,13 +202,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle("getRealm", () => store.toRealm());
 
-  const found = (input: { kind: SettlementKind; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Settlement => {
+  const found = (input: { kind: SettlementKind; art?: string; name: string; cwd: string; hex: { q: number; r: number }; profileId: string }): Settlement => {
     if (!existsSync(input.cwd)) throw new Error(`no such folder: ${input.cwd}`);
     const taken = [...store.settlements.values()].some((s) => s.hex.q === input.hex.q && s.hex.r === input.hex.r);
     if (taken) throw new Error("that hex is occupied");
     const s: Settlement = {
       id: randomUUID(),
       kind: input.kind,
+      art: artFor(input.kind, input.art),
       name: input.name.trim() || basename(input.cwd),
       hex: input.hex,
       cwd: input.cwd,
@@ -231,6 +233,16 @@ app.whenReady().then(() => {
   };
 
   ipcMain.handle("found", (_e, input: Parameters<typeof found>[0]) => found(input));
+
+  // Looks only, so it never disturbs a running session — the house is redrawn
+  // and the settlement carries on whatever it was doing.
+  ipcMain.handle("setArt", (_e, id: string, art: string) => {
+    const s = store.settlements.get(id);
+    if (!s) throw new Error("no such settlement");
+    s.art = artFor(s.kind, art);
+    store.save();
+    emit(s);
+  });
 
   ipcMain.handle("move", (_e, id: string, hex: { q: number; r: number }) => {
     const s = store.settlements.get(id);

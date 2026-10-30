@@ -7,6 +7,7 @@
 import { app } from "electron";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { artFor } from "../shared/types.js";
 import type { Realm, RealmDefaults, Settlement } from "../shared/types.js";
 
 const CHAT_KEPT_ON_DISK = 200;
@@ -70,6 +71,9 @@ export class RealmStore {
         // in on load so the rest of the app never has to wonder.
         s.model ??= null;
         s.permissionMode ??= null;
+        // Founded before houses existed, or wearing one that no longer suits
+        // its kind: artFor settles it either way.
+        s.art = artFor(s.kind, s.art);
         s.tokens ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
         s.chat ??= [];
         s.error ??= null;

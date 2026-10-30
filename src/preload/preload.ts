@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("keep", {
   setModel: (id: string, model: string | null) => ipcRenderer.invoke("setModel", id, model),
   setPermissionMode: (id: string, mode: string | null) =>
     ipcRenderer.invoke("setPermissionMode", id, mode),
+  setArt: (id: string, art: string) => ipcRenderer.invoke("setArt", id, art),
   onModels: (cb: (m: unknown[]) => void) => ipcRenderer.on("models", (_e, m: unknown[]) => cb(m)),
   saveDefaults: (d: unknown) => ipcRenderer.invoke("saveDefaults", d),
   onSettlement: (cb: (s: Settlement) => void) =>

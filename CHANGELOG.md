@@ -13,6 +13,20 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **Houses.** A camp or a city can be built in any of three looks, and the art
+  for all six ships. The house is looks only — the kind still decides how long
+  a settlement survives idle and how hard it is to raze — which is what makes
+  it useful for grouping: a run of related projects raised in the same house
+  reads as one thing from across the map, with nothing to click and no name to
+  read. An existing settlement can be rebuilt in another house from its details
+  sheet, mid-conversation, without disturbing its session.
+- **The build tool**, second on the map rail. It opens a palette of every
+  house, and picking one puts it in your hand: the map shows a ghost of it
+  under the pointer, and the next empty tile you click becomes it, with the
+  founding form already on the kind and house you chose. Escape, or the tool
+  again, puts it down. Clicking bare ground still works exactly as it did, and
+  the founding form now carries the same house picker.
+
 - **Your name and your avatar.** The cottage takes a name, so the map says who
   you are instead of "You", and an image that stands outside the cottage door.
   The avatar is kept beside your realm rather than in the app's assets, so it is
@@ -25,6 +39,14 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Fixed
 
+- **The ground flickered and seamed while zooming.** Ground chunks bake the
+  zoom into the grid, so every zoom step voided the whole set and it came back
+  one chunk a frame while the next step voided it again. A zoom in motion now
+  draws the chunks it already has, scaled, and repaints them once the zoom has
+  held still; anything missing is painted straight to the screen rather than
+  left showing water. The thin dark lines down the chunk boundaries were whole
+  device-pixel canvases landing at fractional offsets — chunks are now painted
+  a pixel wide and drawn overlapping.
 - **The packaged app could not start a session at all.** The SDK spawns the
   Claude CLI as a child process and resolves its path relative to its own
   module, which inside a packaged app is a path *within* `app.asar`. Electron

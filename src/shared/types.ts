@@ -12,6 +12,45 @@ export type Hex = { q: number; r: number };
 export type SettlementKind = "camp" | "city";
 
 /**
+ * The house a settlement is built in.
+ *
+ * The kind decides how a settlement behaves — how long it survives idle, how
+ * hard it is to raze. The house decides only how it looks, and that is the
+ * point: three camps in the same house read as one project from across the
+ * map, with nothing to click and no name to read.
+ *
+ * `value` is both what a settlement stores and the sprite's file name
+ * (`src/assets/<value>.png`), so the JOBS table in tools/prep_assets.py has to
+ * emit exactly these names.
+ */
+export const SETTLEMENT_ART = [
+  { value: "camp-1", kind: "camp", label: "Banner" },
+  { value: "camp-2", kind: "camp", label: "Caravan" },
+  { value: "camp-3", kind: "camp", label: "Arcane" },
+  { value: "city-1", kind: "city", label: "Bastion" },
+  { value: "city-2", kind: "city", label: "Golden" },
+  { value: "city-3", kind: "city", label: "Observatory" },
+] as const;
+
+export type SettlementArt = (typeof SETTLEMENT_ART)[number]["value"];
+
+/** What a kind wears when nothing chose for it. */
+export function defaultArt(kind: SettlementKind): SettlementArt {
+  return kind === "camp" ? "camp-1" : "city-1";
+}
+
+/**
+ * The house to actually draw. Anything that does not belong to the kind falls
+ * back — a settlement founded before the choice existed, a name dropped from
+ * the art, a hand-edited realm file. The map must never be left asking for a
+ * sprite that will not load.
+ */
+export function artFor(kind: SettlementKind, art: string | null | undefined): SettlementArt {
+  const hit = SETTLEMENT_ART.find((a) => a.value === art && a.kind === kind);
+  return hit ? hit.value : defaultArt(kind);
+}
+
+/**
  * What a tile is doing, in the one vocabulary the map draws from.
  *
  * `needs_you` is the flag. It is the only state the user must act on, so it is
@@ -38,6 +77,8 @@ export type ChatEntry =
 export type Settlement = {
   id: string;
   kind: SettlementKind;
+  /** Which of the kind's houses it was built in. Looks only; see SETTLEMENT_ART. */
+  art: SettlementArt;
   name: string;
   hex: Hex;
   /** The folder this settlement is scoped to. Its whole world. */
@@ -136,7 +177,7 @@ export type Realm = {
 /** Everything the renderer can ask the Keep to do. */
 export type Api = {
   getRealm(): Promise<Realm>;
-  found(input: { kind: SettlementKind; name: string; cwd: string; hex: Hex; profileId: string }): Promise<Settlement>;
+  found(input: { kind: SettlementKind; art: SettlementArt; name: string; cwd: string; hex: Hex; profileId: string }): Promise<Settlement>;
   raze(id: string): Promise<void>;
   move(id: string, hex: Hex): Promise<void>;
   send(id: string, text: string): Promise<void>;
@@ -154,6 +195,8 @@ export type Api = {
   models(): Promise<ModelChoice[]>;
   setModel(id: string, model: string | null): Promise<void>;
   setPermissionMode(id: string, mode: PermissionModeValue | null): Promise<void>;
+  /** Rebuild an existing settlement in a different house. Nothing but looks. */
+  setArt(id: string, art: SettlementArt): Promise<void>;
   toggleMaximize(): Promise<boolean>;
   onWindowState(cb: (big: boolean) => void): void;
   saveDefaults(d: RealmDefaults): Promise<void>;
