@@ -1078,19 +1078,30 @@ In the order that makes the next thing possible.
    it.
 6. **Grants and routes in the UI**, once walls exist underneath them.
 
-Assets still needed, and the pipeline is ready for all of them (`tools/prep_assets.py`, which
-reports each one as missing until it lands): `library`, `post-office`, `bounty-board`,
-`flag-pole` and `flag`. All five mirror on the way through, because the settlements were drawn
-lit from one side and these from the other.
+Assets **in and prepped, wired to nothing**: `library`, `post-office`, `bounty-board`,
+`flag-pole`, and `flag-0.png` … `flag-7.png`. All mirrored on the way through, because the
+settlements were drawn lit from one side and these from the other.
 
 **How the flag is meant to work.** A `flag-pole` stands beside every city, bare. When the city
-needs you, the bare pole is swapped for the waving flag — `flag` is eight frames of animation
-on a 4×2 sheet, sliced to `flag-0.png` … `flag-7.png`. It is drawn white so the map can tint
-it by multiplying: white takes the colour exactly and the greys stay as shading, which is one
-sprite for every state that ever needs a colour of its own rather than one sprite per colour.
-Until the art lands, the flag is drawn on canvas.
+needs you, the bare pole is swapped for the waving flag — eight frames off a 4×2 sheet. Each
+frame carries its own pole and base, so the swap is one sprite for another; they are different
+shapes, though (the pole is tall and narrow, a flag frame is square), so they have to be
+anchored at the foot rather than centred, or the pole will jump when the flag goes up.
 
-The frames are generated, so they are not guaranteed to sit evenly in their cells. The prep
-run reports the drift and the slicer crops every frame to one shared box, so what plays is
-whatever evenness the art has — a flag that wanders will wander around its pole. Check that
-line before wiring it up.
+Two things the prep run measures, because neither is visible by looking at the sheet:
+
+```
+base: wanders 17px of 256 — frame 0 is the outlier
+tint: brightest art is rgb(251, 238, 208) — warm/cool by 43 — a tint lands shifted;
+      45% of the sprite is that neutral, the rest is coloured and would tint too
+```
+
+**The base wanders.** Seven frames put the pole's foot within about 3px of each other; frame 0
+sits ~15px off, so the loop will hop as it wraps. Live with it, drop frame 0, or nudge it.
+
+**Tinting needs different art.** The intent was one white flag the map could multiply to any
+colour. As drawn, the cloth is cream rather than white, so a tint lands warm-shifted — and the
+frames include the wooden pole and its rocks, so a multiply over the sprite would colour those
+too. To get a tintable flag, the cloth wants to be its own sheet: `flag-pole` drawn as it is
+now, the cloth over it as a separate animated layer, tinted on its own. Until then the flag is
+one colour, which is all `needs_you` currently asks for.

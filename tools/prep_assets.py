@@ -70,7 +70,7 @@ JOBS = [
 #     Nothing here may touch its colour, and `--sheet-report` says whether the
 #     art really is neutral enough for that to work.
 SHEETS = [
-    ("flag", "flag", 4, 2, 256, True),
+    ("flag-sprite", "flag", 4, 2, 256, True),
 ]
 
 # How close to the corner colour still counts as background.
@@ -524,6 +524,49 @@ def prepare_ground(width: int = 512) -> None:
     print(f"  ground.json: base + {len(patches)} patches")
 
 
+def sheet_report(name: str, frames: list[Image.Image]) -> None:
+    """Two things you cannot tell by looking at a sheet, and need to know.
+
+    *Anchor drift.* A frame's overall bounds move as the art animates — that is
+    the animation, not a fault, so measuring the whole frame cries wolf. What
+    must not move is whatever the sprite stands on, so this measures the centre
+    of the bottom sliver, where only the base is.
+
+    *Tint.* Multiplying a colour through white art gives that colour back; the
+    further the art is from neutral, the more the tint is dragged toward it.
+    The brightest pixels are the part you would want to tint, so they are what
+    gets measured — and the rest of the sprite is reported too, because a
+    multiply applied to the whole thing colours all of it, base and all.
+    """
+    feet = []
+    for f in frames:
+        w, h = f.size
+        strip = f.crop((0, int(h * 0.92), w, h))
+        px = strip.load()
+        xs = [x for y in range(strip.height) for x in range(w) if px[x, y][3] > 128]
+        if xs:
+            feet.append(sum(xs) / len(xs))
+    if len(feet) > 1:
+        spread = max(feet) - min(feet)
+        worst = max(range(len(feet)), key=lambda i: abs(feet[i] - sorted(feet)[len(feet) // 2]))
+        verdict = "steady" if spread <= frames[0].width * 0.02 else f"wanders {spread:.0f}px of {frames[0].width} — frame {worst} is the outlier"
+        print(f"      base: {verdict}")
+
+    px = frames[0].load()
+    w, h = frames[0].size
+    lit = sorted(
+        (px[x, y] for y in range(h) for x in range(w) if px[x, y][3] > 200),
+        key=lambda p: -(p[0] + p[1] + p[2]),
+    )
+    if lit:
+        top = lit[len(lit) // 10]
+        spread = max(top[:3]) - min(top[:3])
+        tint = "neutral, tints true" if spread <= 16 else f"warm/cool by {spread} — a tint lands shifted"
+        share = sum(1 for p in lit if max(p[:3]) - min(p[:3]) <= spread + 8) * 100 // len(lit)
+        print(f"      tint: brightest art is rgb{top[:3]} — {tint}; "
+              f"{share}% of the sprite is that neutral, the rest is coloured and would tint too")
+
+
 def prepare_sheets() -> None:
     """Slice each animation sheet into one PNG per frame."""
     for stem, name, cols, rows, width, mirror in SHEETS:
@@ -557,47 +600,24 @@ def prepare_sheets() -> None:
         boxes = [f.getbbox() for f in frames]
         boxes = [b for b in boxes if b]
 
-        # How evenly the art sits in its cells. Generated frames are not laid
-        # out on a grid by anything that cares, and a flag whose art wanders
-        # from cell to cell will crawl around its pole as it plays. The union
-        # crop keeps every frame in one coordinate space, so this is drift you
-        # will see, not drift it corrects.
-        if len(boxes) > 1:
-            drift = [max(b[k] for b in boxes) - min(b[k] for b in boxes) for k in range(4)]
-            widths = {(b[2] - b[0], b[3] - b[1]) for b in boxes}
-            verdict = "even" if max(drift) <= max(2, fw // 50) else f"uneven — worst edge moves {max(drift)}px of {fw}"
-            print(f"  {stem}.png frames: {verdict}"
-                  f"  (edges drift L{drift[0]} T{drift[1]} R{drift[2]} B{drift[3]},"
-                  f" {len(widths)} distinct content size{'' if len(widths) == 1 else 's'})")
-
         if boxes:
             union = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                      max(b[2] for b in boxes), max(b[3] for b in boxes))
             frames = [f.crop(union) for f in frames]
 
         height = round(width * frames[0].height / frames[0].width)
+        out = []
         for i, f in enumerate(frames):
             f = f.resize((width, height), Image.LANCZOS)
             # Per frame, so the order plays forwards.
             if mirror:
                 f = f.transpose(Image.FLIP_LEFT_RIGHT)
             f.save(OUT / f"{name}-{i}.png", optimize=True)
+            out.append(f)
 
-        # Is it actually tintable? Multiply only reads as a colour change if the
-        # art is neutral; a sheet with real colour in it will come out muddy.
-        rgb = frames[0].convert("RGBA")
-        px = rgb.load()
-        spread, lit = 0, 0
-        for yy in range(0, rgb.height, 3):
-            for xx in range(0, rgb.width, 3):
-                r, g, b, a = px[xx, yy]
-                if a < 200:
-                    continue
-                lit += 1
-                spread = max(spread, max(r, g, b) - min(r, g, b))
-        neutral = "neutral — multiply will tint cleanly" if spread <= 16 else f"has colour (spread {spread}) — multiply will muddy it"
         print(f"  {stem}.png -> {name}-0..{len(frames) - 1}.png  {width}x{height} each"
-              f"{' · mirrored' if mirror else ''}  ·  {neutral}")
+              f"{' · mirrored' if mirror else ''}")
+        sheet_report(name, out)
 
 
 def main() -> int:
