@@ -240,7 +240,8 @@ you drag the splitter. **Home** glides the map back to the cottage.
 ### Moving around
 
 Two fingers pan, pinch or ⌘+scroll zooms, and a mouse can still drag. `+` and
-`-` zoom, `0` recentres.
+`-` zoom, `0` recentres. With ⌘ held, the same three keys size the conversation text
+instead — `⌘=` bigger, `⌘-` smaller, `⌘0` back to normal — and it is remembered.
 
 Razing a city makes you type `delete` first; a camp takes one confirming click.
 It is the only irreversible thing on the map.

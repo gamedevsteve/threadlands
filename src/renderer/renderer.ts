@@ -1241,6 +1241,34 @@ canvas.addEventListener("wheel", (e) => {
   invalidate();
 }, { passive: false });
 
+/**
+ * ⌘= / ⌘- / ⌘0: bigger, smaller, or normal conversation text. Held on the root
+ * element so the panel's re-renders keep it, and remembered between launches.
+ * Checked before the typing guard, so it works from the message box too.
+ */
+const CHAT_SCALES = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
+let chatScale = Number(localStorage.getItem("chatScale")) || 1;
+function setChatScale(next: number): void {
+  chatScale = next;
+  document.documentElement.style.setProperty("--chat-scale", String(next));
+  localStorage.setItem("chatScale", String(next));
+}
+setChatScale(CHAT_SCALES.includes(chatScale) ? chatScale : 1);
+
+window.addEventListener("keydown", (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+  const i = CHAT_SCALES.indexOf(chatScale);
+  let next: number | null = null;
+  if (e.key === "=" || e.key === "+") next = CHAT_SCALES[Math.min(i + 1, CHAT_SCALES.length - 1)]!;
+  else if (e.key === "-" || e.key === "_") next = CHAT_SCALES[Math.max(i - 1, 0)]!;
+  else if (e.key === "0") next = 1;
+  if (next === null) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  setChatScale(next);
+  toast(`Conversation text ${Math.round(next * 100)}%`);
+});
+
 window.addEventListener("keydown", (e) => {
   const typing = document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA";
   if (typing) return;

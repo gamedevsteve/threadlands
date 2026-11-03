@@ -431,6 +431,8 @@
   .pane.split .shead > .btns:last-child { margin-bottom: 12px; }
   .msg { padding: 7px 10px; border-radius: 8px; max-width: 94%; white-space: pre-wrap; word-break: break-word; }
   .msg.md { white-space: normal; word-break: normal; overflow-wrap: anywhere; }
+  /* ⌘= / ⌘- / ⌘0 scale the conversation. Code inside uses em, so it follows. */
+  .msg.you, .msg.governor { font-size: calc(1em * var(--chat-scale, 1)); }
   .msg.you { background: #243c48; align-self: flex-end; }
   .msg.governor { background: var(--panel-2); }
   .msg.tool { background: transparent; color: var(--dim); font-family: ui-monospace, Menlo, monospace; font-size: 11px; padding: 2px 4px; }
