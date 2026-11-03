@@ -81,7 +81,7 @@ function notify(settlement: Settlement, body: string): void {
   // "background" means: do not interrupt someone already looking at the map.
   if (when === "background" && win?.isFocused()) return;
 
-  const n = new Notification({ title: "Threadlands", body, silent: false });
+  const n = new Notification({ title: settlement.name, body, silent: false });
   // macOS refuses notifications from an app it has not registered, and does so
   // silently unless you listen: running the Electron binary straight out of
   // node_modules fails with UNErrorDomain 1 every time. Only a packaged,
@@ -104,8 +104,8 @@ function announce(s: Settlement): void {
   const prev = lastNotifiedState.get(s.id);
   lastNotifiedState.set(s.id, s.state);
   if (prev === s.state) return;
-  if (s.state === "needs_you") notify(s, `${s.name} needs your guidance.`);
-  else if (s.state === "idle" && prev === "working") notify(s, `${s.name} has gone idle.`);
+  if (s.state === "needs_you") notify(s, "Needs your guidance.");
+  else if (s.state === "idle" && prev === "working") notify(s, "Finished, and waiting for you.");
 }
 
 /** Push a settlement snapshot at the map. The renderer holds no other truth. */
