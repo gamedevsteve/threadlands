@@ -5,7 +5,7 @@
  * imports the Agent SDK; every fact about a session arrives over `window.keep`.
  */
 import { hexCorners, hexDistance, hexEq, hexSpiral, hexToPixel, pixelToHex } from "./hex.js";
-import { marked } from "marked";
+import { Marked, marked } from "marked";
 import { NOTIFY_WHEN, PERMISSION_MODES, SETTLEMENT_ART, artFor, defaultArt } from "../shared/types.js";
 import type {
   AccountBudget,
@@ -209,22 +209,41 @@ const esc = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 marked.setOptions({ gfm: true, breaks: true });
+// Raw HTML in a reply is shown as text, never rendered. Everything else marked
+// escapes itself: code spans and blocks, plain text, link titles.
+marked.use({ renderer: { html: ({ text }) => esc(text) } });
 
 /**
  * A governor's reply, as markdown.
  *
- * The text is HTML-escaped *before* parsing, never after: escaping afterwards
- * would undo the markup marked just produced, and skipping it would let a
- * model's output inject tags into the panel. Escaping first is harmless to the
- * markdown itself — none of its syntax uses the characters being escaped.
+ * Marked gets the raw text, and the `html` renderer above turns any tag a model
+ * writes into visible text, so output cannot inject markup into the panel.
+ * Escaping the text *before* parsing would also do that, but marked escapes
+ * code again, so `~> 6.0` showed as `~&gt; 6.0`, and `>` blockquotes never
+ * parsed.
  */
-function markdown(text: string): string {
+function markdown(text: string, parser: Marked | typeof marked = marked): string {
   try {
-    return marked.parse(esc(text), { async: false });
+    return parser.parse(text, { async: false }) as string;
   } catch {
     return esc(text);
   }
 }
+
+/**
+ * What you type, chat-app style: `*bold*` and `_italic_`. `**bold**` still
+ * works. Governor replies keep standard markdown, where `*x*` is italic.
+ */
+const yourMarkdown = new Marked({ gfm: true, breaks: true });
+yourMarkdown.use({
+  renderer: {
+    html: ({ text }) => esc(text),
+    em(token) {
+      const inner = this.parser.parseInline(token.tokens);
+      return token.raw.startsWith("*") ? `<strong>${inner}</strong>` : `<em>${inner}</em>`;
+    },
+  },
+});
 
 // ── drawing ───────────────────────────────────────────────────────────────────
 
@@ -1586,10 +1605,9 @@ function renderSettlement(s: Settlement): string {
   const chat = groups
     .map((g, i) => {
       if (g.kind === "bubble") {
-        // Only the governor speaks markdown. What you typed is shown as typed.
-        return g.entry.role === "governor"
-          ? `<div class="msg governor md">${markdown(g.entry.text)}</div>`
-          : `<div class="msg you">${esc(g.entry.text)}</div>`;
+        // Both sides speak markdown. The governor gets your text exactly as
+        // typed; only the bubble renders it.
+        return `<div class="msg ${g.entry.role} md">${markdown(g.entry.text, g.entry.role === "you" ? yourMarkdown : marked)}</div>`;
       }
       // The last run is still unfolding if nothing has answered it yet.
       const unfinished = i === groups.length - 1 && s.state !== "idle" && s.state !== "dormant";

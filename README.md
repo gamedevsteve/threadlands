@@ -195,9 +195,11 @@ The work between two bubbles — what it read, wrote and ran — collapses to on
 line once the turn is over, with a count of what happened and an **expand** to
 open it. The run still in progress stays open, so you can watch it work.
 
-A governor's replies render as markdown. The text is HTML-escaped *before* it
-is parsed, never after: escaping afterwards would undo the markup, and skipping
-it would let a model's output inject tags into the panel. Links open in the
+A governor's replies render as markdown. Raw HTML in a reply is shown as text
+rather than rendered (marked's `html` renderer is overridden to escape it), so a
+model's output cannot inject tags into the panel. The text is *not* escaped
+before parsing: marked escapes code itself, so doing it first double-escaped
+anything in backticks (`~> 6.0` showed as `~&gt; 6.0`). Links open in the
 system browser rather than navigating the app away.
 
 ### Notifications
