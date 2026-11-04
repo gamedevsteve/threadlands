@@ -136,9 +136,6 @@
     transition: opacity .12s ease, transform .12s ease;
   }
   .railbtn img { width: 100%; height: 100%; display: block; }
-  .railbtn.framed { position: relative; }
-  .railbtn.framed img { position: absolute; inset: 0; }
-  .railbtn.framed .art { object-fit: contain; padding: 5px 5px 6px; box-sizing: border-box; }
   /* Grow from the middle, not away from the panel. */
   .railbtn:hover { opacity: 1; transform: scale(1.09); }
   .railbtn:active { transform: scale(.97); }
@@ -555,11 +552,8 @@
     <button class="railbtn" id="go-build" title="Choose what to build">
       <img src="./assets/build.png" alt="Choose what to build" />
     </button>
-    <!-- Stand-in until the bounty board has its own icon: the blank frame with
-         the board's art inside, like the build palette's tiles. -->
-    <button class="railbtn framed" id="go-bounty" title="Go to the bounty board">
-      <img class="frame" src="./assets/blank.png" alt="" />
-      <img class="art" src="./assets/bounty-board.png" alt="Go to the bounty board" />
+    <button class="railbtn" id="go-bounty" title="Go to the bounty board">
+      <img src="./assets/bounty.png" alt="Go to the bounty board" />
     </button>
   </div>
   <!-- Filled by the renderer from SETTLEMENT_ART, so the houses on offer are
