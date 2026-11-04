@@ -407,6 +407,9 @@ class Governor {
         ...(this.executable ? { pathToClaudeCodeExecutable: this.executable } : {}),
         ...(this.mode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
         maxBudgetUsd: this.maxBudgetUsd,
+        // Threadlands has no UI for the question tool yet: a question asked
+        // with it goes nowhere. Governors ask in plain text instead.
+        disallowedTools: ["AskUserQuestion"],
         ...(this.model ? { model: this.model } : {}),
         // Only override the config dir for a named profile. See realm.profileDir.
         ...(this.configDir ? { env: { ...process.env, CLAUDE_CONFIG_DIR: this.configDir } } : {}),
