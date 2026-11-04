@@ -72,7 +72,9 @@ export class RealmStore {
         s.model ??= null;
         s.permissionMode ??= null;
         s.maxBudgetUsd ??= null;
-        s.budgetResetAtUsd ??= 0;
+        s.windowSpentUsd ??= 0;
+        s.windowResetsAt ??= null;
+        delete (s as { budgetResetAtUsd?: number }).budgetResetAtUsd;
         // Founded before houses existed, or wearing one that no longer suits
         // its kind: artFor settles it either way.
         s.art = artFor(s.kind, s.art);

@@ -67,6 +67,9 @@ let win: BrowserWindow | null = null;
 let store: RealmStore;
 let sup: Supervisor;
 
+/** When each account's usage session resets, from the cottage's probe. */
+const sessionResetsAt = new Map<string, string | null>();
+
 /**
  * Tell you when a settlement wants something, or has stopped working.
  *
@@ -199,6 +202,7 @@ app.whenReady().then(() => {
     () => store.defaults.model,
     () => store.defaults.permissionMode,
     claudeExecutable(),
+    (profileId) => sessionResetsAt.get(profileId) ?? null,
   );
 
   ipcMain.handle("getRealm", () => store.toRealm());
@@ -303,7 +307,8 @@ app.whenReady().then(() => {
       model: null,
       permissionMode: null,
       maxBudgetUsd: null,
-      budgetResetAtUsd: 0,
+      windowSpentUsd: 0,
+      windowResetsAt: null,
       state: "idle",
       sessionId: null,
       flag: null,
@@ -456,6 +461,9 @@ app.whenReady().then(() => {
     budgetRun = Promise.all(ids.map((p) => probeAccount(p, store.profileDir(p), claudeExecutable())))
       .then((rows) => {
         budgetCache = rows;
+        for (const r of rows) {
+          sessionResetsAt.set(r.profileId, r.meters.find((m) => m.kind === "session")?.resetsAt ?? null);
+        }
         win?.webContents.send("budgets", rows);
         return rows;
       })
@@ -487,7 +495,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("setBudget", (_e, id: string, usd: number | null) => sup.setBudget(id, usd));
-  ipcMain.handle("resetBudget", (_e, id: string) => sup.resetBudget(id));
+
 
   ipcMain.handle("setModel", (_e, id: string, model: string | null) => sup.setModel(id, model));
   ipcMain.handle("setPermissionMode", (_e, id: string, mode: PermissionModeValue | null) =>

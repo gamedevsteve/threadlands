@@ -95,12 +95,18 @@ export type Settlement = {
   chat: ChatEntry[];
   /** Cumulative, from modelUsage on each result. */
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  /** Lifetime spend, across every process this settlement has had. */
+  /** The SDK's running total for this conversation, resumes included. */
   costUsd: number;
   /** Overrides the realm's ceiling. Null means follow it. */
   maxBudgetUsd: number | null;
-  /** The ceiling counts spend above this. Set to costUsd by a reset. */
-  budgetResetAtUsd: number;
+  /**
+   * Spend within the account's current usage session — the cottage's
+   * "Session" meter — which is what the ceiling caps. Back to zero when that
+   * session resets.
+   */
+  windowSpentUsd: number;
+  /** When the session that windowSpentUsd belongs to resets. ISO, or null. */
+  windowResetsAt: string | null;
   foundedAt: number;
   lastActiveAt: number;
   /** Set when the governor dies, so the tile can show why. */
@@ -181,7 +187,7 @@ export type RealmDefaults = {
   /** Minutes of silence before a settlement is reaped. Camps go first. */
   campIdleMinutes: number;
   cityIdleMinutes: number;
-  /** Default ceiling per settlement, counted against its spend since the last reset. */
+  /** Default ceiling per settlement, per account usage session. */
   maxBudgetUsd: number;
 };
 
@@ -217,7 +223,6 @@ export type Api = {
   setArt(id: string, art: SettlementArt): Promise<void>;
   /** Null follows the realm default. */
   setBudget(id: string, usd: number | null): Promise<void>;
-  resetBudget(id: string): Promise<void>;
   toggleMaximize(): Promise<boolean>;
   onWindowState(cb: (big: boolean) => void): void;
   saveDefaults(d: RealmDefaults): Promise<void>;

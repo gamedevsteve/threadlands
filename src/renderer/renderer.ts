@@ -40,7 +40,6 @@ type Keep = {
   setPermissionMode(id: string, mode: PermissionModeValue | null): Promise<void>;
   setArt(id: string, art: SettlementArt): Promise<void>;
   setBudget(id: string, usd: number | null): Promise<void>;
-  resetBudget(id: string): Promise<void>;
   onModels(cb: (m: ModelChoice[]) => void): void;
   toggleMaximize(): Promise<boolean>;
   onWindowState(cb: (big: boolean) => void): void;
@@ -255,17 +254,20 @@ yourMarkdown.use({
   },
 });
 
-/** The ceiling field, and how much of it is used. */
+/** The ceiling field, and how much of it this account session has used. */
 function renderBudget(s: Settlement): string {
   const ceiling = s.maxBudgetUsd ?? realm.defaults.maxBudgetUsd;
-  const used = Math.max(0, s.costUsd - (s.budgetResetAtUsd ?? 0));
+  // A session that has already reset counts as nothing spent, even before the
+  // Keep gets round to zeroing it.
+  const expired = !!s.windowResetsAt && Date.parse(s.windowResetsAt) <= Date.now();
+  const used = expired ? 0 : s.windowSpentUsd;
   const over = used >= ceiling - 0.01;
-  return `<div class="budgetrow">
-      <input id="s-budget" type="number" min="0" step="0.5"
-        value="${s.maxBudgetUsd ?? ""}" placeholder="Realm default — $${realm.defaults.maxBudgetUsd}">
-      <button id="s-budget-reset" title="Count from zero again. Spent, all time, is kept.">Reset count</button>
-    </div>
-    <p class="muted hint${over ? " overbudget" : ""}">$${used.toFixed(2)} of $${ceiling.toFixed(2)} used${over ? " — out of budget" : ""}</p>`;
+  const resets = s.windowResetsAt && !expired
+    ? ` · resets ${new Date(s.windowResetsAt!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+    : "";
+  return `<input id="s-budget" type="number" min="0" step="0.5"
+      value="${s.maxBudgetUsd ?? ""}" placeholder="Realm default — $${realm.defaults.maxBudgetUsd}">
+    <p class="muted hint${over ? " overbudget" : ""}">$${used.toFixed(2)} of $${ceiling.toFixed(2)} this session${resets}${over ? " — out of budget" : ""}</p>`;
 }
 
 // ── drawing ───────────────────────────────────────────────────────────────────
@@ -1735,7 +1737,7 @@ function renderSettlement(s: Settlement): string {
         <div class="kv"><span class="k">Account</span><span class="v mono">${esc(s.profileId)}</span></div>
         <div class="kv"><span class="k">Tokens</span><span class="v mono">${total.toLocaleString()}</span></div>
         <div class="kv sub"><span class="k">In · Out · Cached</span><span class="v mono">${tk.input.toLocaleString()} · ${tk.output.toLocaleString()} · ${tk.cacheRead.toLocaleString()}</span></div>
-        <div class="kv"><span class="k">Spent, all time</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>
+        <div class="kv"><span class="k">Spent, this conversation</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>
         <div class="kv"><span class="k">Founded</span><span class="v">${esc(new Date(s.foundedAt).toLocaleDateString())}</span></div>
 
         <label>Asks before acting</label>
@@ -2009,12 +2011,6 @@ function render(): void {
     void keep.setBudget(s.id, value);
     render();
     toast(value === null ? `${s.name}: realm default budget` : `${s.name}: $${value.toFixed(2)} ceiling`);
-  });
-  pane.querySelector("#s-budget-reset")?.addEventListener("click", () => {
-    s.budgetResetAtUsd = s.costUsd;
-    void keep.resetBudget(s.id);
-    render();
-    toast(`${s.name}: budget count reset`);
   });
   pane.querySelector("#s-model")?.addEventListener("change", (e) => {
     const value = (e.target as HTMLSelectElement).value || null;

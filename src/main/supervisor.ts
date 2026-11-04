@@ -99,7 +99,23 @@ export class Supervisor {
     private readonly defaultModel: () => string | null,
     private readonly defaultMode: () => PermissionModeValue,
     private readonly executable: string | undefined,
+    private readonly sessionResetsAt: (profileId: string) => string | null,
   ) {}
+
+  /**
+   * Start the settlement's session spend again if the account's usage session
+   * has reset since it was counted: the reset time has passed, or the probe
+   * reports a new one.
+   */
+  private rollWindow(s: Settlement): void {
+    const current = this.sessionResetsAt(s.profileId);
+    const now = Date.now();
+    const expired = !!s.windowResetsAt && Date.parse(s.windowResetsAt) <= now;
+    const moved = !!current && current !== s.windowResetsAt;
+    if (!expired && !moved) return;
+    s.windowSpentUsd = 0;
+    s.windowResetsAt = current && Date.parse(current) > now ? current : null;
+  }
 
   /** Send a prompt, spawning or resuming the governor as needed. */
   async send(id: string, text: string): Promise<void> {
@@ -108,9 +124,10 @@ export class Supervisor {
 
     let g = this.governors.get(id);
     if (!g) {
-      // The ceiling counts against everything spent since the last reset, not
-      // just this process, so a spawn only gets what is left of it.
-      const left = this.ceilingOf(s) - spentAgainstCeiling(s);
+      // The ceiling caps spend within the account's usage session, so a spawn
+      // is given only what is left of it this session.
+      this.rollWindow(s);
+      const left = this.ceilingOf(s) - s.windowSpentUsd;
       if (left < 0.01) {
         s.chat.push({ role: "you", text, at: Date.now() });
         s.chat.push({ role: "system", text: overBudget(s, this.ceilingOf(s)), at: Date.now() });
@@ -127,6 +144,10 @@ export class Supervisor {
         s.permissionMode ?? this.defaultMode(),
         this.executable,
         (subtype) => this.afterTurn(id, subtype),
+        (delta) => {
+          this.rollWindow(s);
+          s.windowSpentUsd += delta;
+        },
       );
       this.governors.set(id, g);
       g.start();
@@ -228,15 +249,6 @@ export class Supervisor {
     this.emit(s);
   }
 
-  /** Start counting against the ceiling from now. Spent stays a lifetime total. */
-  resetBudget(id: string): void {
-    const s = this.settlements.get(id);
-    if (!s) return;
-    s.budgetResetAtUsd = s.costUsd;
-    this.retireForBudget(id);
-    this.emit(s);
-  }
-
   defaultBudgetChanged(): void {
     for (const id of [...this.governors.keys()]) {
       if (this.settlements.get(id)?.maxBudgetUsd === null) this.retireForBudget(id);
@@ -301,14 +313,12 @@ export class Supervisor {
   }
 }
 
-/** Spent since the ceiling was last reset. */
-export function spentAgainstCeiling(s: Settlement): number {
-  return Math.max(0, s.costUsd - (s.budgetResetAtUsd ?? 0));
-}
-
 function overBudget(s: Settlement, ceiling: number): string {
-  return `Out of budget: $${spentAgainstCeiling(s).toFixed(2)} of its $${ceiling.toFixed(2)} ceiling is spent. ` +
-    `Raise the ceiling or reset the count in this settlement's details, then send your message again.`;
+  const resets = s.windowResetsAt
+    ? ` It starts again when your account's session resets, at ${new Date(s.windowResetsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
+    : "";
+  return `Out of budget: $${s.windowSpentUsd.toFixed(2)} of its $${ceiling.toFixed(2)} ceiling is spent this session.` +
+    `${resets} Or raise the ceiling in this settlement's details, then send your message again.`;
 }
 
 /** One live session. Spawns lazily, resumes when it has a sessionId. */
@@ -317,8 +327,12 @@ class Governor {
   private input = createInputStream();
   private pending: ((r: PermissionResult) => void) | null = null;
   private stopped = false;
-  /** What this process has spent so far; the SDK reports a running total per process. */
-  private processCost = 0;
+  /**
+   * The last total the SDK reported. Its total_cost_usd covers the whole
+   * conversation, resumes included, so a resumed session starts from what was
+   * stored, and only the growth since then is new spend.
+   */
+  private lastTotal: number;
 
   constructor(
     private readonly s: Settlement,
@@ -329,7 +343,10 @@ class Governor {
     private mode: PermissionModeValue,
     private readonly executable: string | undefined,
     private readonly onTurnEnd: (subtype: string) => void,
-  ) {}
+    private readonly onSpend: (deltaUsd: number) => void,
+  ) {
+    this.lastTotal = s.sessionId ? s.costUsd : 0;
+  }
 
   push(text: string): void {
     this.input.push(text);
@@ -439,12 +456,10 @@ class Governor {
       case "result": {
         // The session id is re-emitted every turn; the latest result is truth.
         s.sessionId = msg.session_id;
-        // total_cost_usd starts again at zero with every process, so add the
-        // difference rather than taking it: Spent is the settlement's lifetime.
-        {
-          const total = msg.total_cost_usd ?? this.processCost;
-          s.costUsd += Math.max(0, total - this.processCost);
-          this.processCost = total;
+        if (typeof msg.total_cost_usd === "number") {
+          this.onSpend(Math.max(0, msg.total_cost_usd - this.lastTotal));
+          this.lastTotal = msg.total_cost_usd;
+          s.costUsd = msg.total_cost_usd;
         }
         for (const u of Object.values(msg.modelUsage ?? {})) {
           const m = u as any;
