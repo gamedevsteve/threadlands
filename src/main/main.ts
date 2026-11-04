@@ -302,6 +302,8 @@ app.whenReady().then(() => {
       profileId: input.profileId || "default",
       model: null,
       permissionMode: null,
+      maxBudgetUsd: null,
+      budgetResetAtUsd: 0,
       state: "idle",
       sessionId: null,
       flag: null,
@@ -476,11 +478,16 @@ app.whenReady().then(() => {
   ipcMain.handle("saveDefaults", async (_e, d: RealmDefaults) => {
     const modelChanged = d.model !== store.defaults.model;
     const modeChanged = d.permissionMode !== store.defaults.permissionMode;
+    const budgetChanged = d.maxBudgetUsd !== store.defaults.maxBudgetUsd;
     store.defaults = { ...store.defaults, ...d };
     store.save();
     if (modelChanged) await sup.defaultModelChanged();
     if (modeChanged) await sup.defaultModeChanged();
+    if (budgetChanged) sup.defaultBudgetChanged();
   });
+
+  ipcMain.handle("setBudget", (_e, id: string, usd: number | null) => sup.setBudget(id, usd));
+  ipcMain.handle("resetBudget", (_e, id: string) => sup.resetBudget(id));
 
   ipcMain.handle("setModel", (_e, id: string, model: string | null) => sup.setModel(id, model));
   ipcMain.handle("setPermissionMode", (_e, id: string, mode: PermissionModeValue | null) =>

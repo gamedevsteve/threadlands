@@ -13,6 +13,28 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **A budget ceiling per settlement**, in its details sheet, over the realm
+  default. The ceiling now counts against what the settlement has spent since
+  its count was last reset, not just against its current process, and
+  **Reset count** starts it again from zero. Changing a ceiling, here or in the
+  cottage, takes effect without a restart: an idle governor is retired and the
+  next message brings it back with the new amount and its memory intact. A
+  settlement that is out of budget says so instead of failing mid-task.
+- **The bounty board** stands west of the cottage, one ring out, greyed out
+  until it does something.
+- `⌘=` / `⌘-` / `⌘0` size the conversation text.
+- Your own messages render markdown, Slack style: `*bold*`, `_italic_`.
+
+### Fixed
+
+- **Spent** was replaced, not added to, at the end of every turn, so it reset
+  whenever a settlement restarted. It is now a lifetime total.
+- Code in backticks showed escaped entities (`~&gt; 6.0`), and `>` quotes never
+  rendered.
+- The message box could be pushed off the bottom of the window on very tall
+  and very short screens.
+- Notifications are titled with the settlement's name.
+
 - **A flag pole beside every settlement, and a flag it raises.** A bare pole
   stands behind each one; when it needs you the pole is drawn waving instead —
   eight frames off a 4×2 sheet, at about 11fps. Every frame carries its own

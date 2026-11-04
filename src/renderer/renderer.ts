@@ -39,6 +39,8 @@ type Keep = {
   setModel(id: string, model: string | null): Promise<void>;
   setPermissionMode(id: string, mode: PermissionModeValue | null): Promise<void>;
   setArt(id: string, art: SettlementArt): Promise<void>;
+  setBudget(id: string, usd: number | null): Promise<void>;
+  resetBudget(id: string): Promise<void>;
   onModels(cb: (m: ModelChoice[]) => void): void;
   toggleMaximize(): Promise<boolean>;
   onWindowState(cb: (big: boolean) => void): void;
@@ -51,6 +53,14 @@ type Keep = {
 const keep = (window as unknown as { keep: Keep }).keep;
 
 const MAP_RADIUS = 14;        // rings of hexes from the cottage
+/**
+ * The bounty board: due west of the cottage, with one ring of hexes between
+ * them. Not built yet, so it stands greyed out and nothing can be raised on it.
+ */
+const BOUNTY_OFFSET = { q: -2, r: 1 };
+function bountyHex(): { q: number; r: number } {
+  return { q: realm.cottageHex.q + BOUNTY_OFFSET.q, r: realm.cottageHex.r + BOUNTY_OFFSET.r };
+}
 const SPRITE_FRACTION = 1.15; // sprite width relative to hex width — tuned to the art
 /** Pole height in hex radii, and how many frames the flag waves in. */
 const FLAG_HEIGHT = 1.7;
@@ -244,6 +254,19 @@ yourMarkdown.use({
     },
   },
 });
+
+/** The ceiling field, and how much of it is used. */
+function renderBudget(s: Settlement): string {
+  const ceiling = s.maxBudgetUsd ?? realm.defaults.maxBudgetUsd;
+  const used = Math.max(0, s.costUsd - (s.budgetResetAtUsd ?? 0));
+  const over = used >= ceiling - 0.01;
+  return `<div class="budgetrow">
+      <input id="s-budget" type="number" min="0" step="0.5"
+        value="${s.maxBudgetUsd ?? ""}" placeholder="Realm default — $${realm.defaults.maxBudgetUsd}">
+      <button id="s-budget-reset" title="Count from zero again. Spent, all time, is kept.">Reset count</button>
+    </div>
+    <p class="muted hint${over ? " overbudget" : ""}">$${used.toFixed(2)} of $${ceiling.toFixed(2)} used${over ? " — out of budget" : ""}</p>`;
+}
 
 // ── drawing ───────────────────────────────────────────────────────────────────
 
@@ -872,7 +895,8 @@ function draw(): void {
   // pointer is ever outlined, plus the one you are founding on.
   const outlined = carrying ? null : (founding ?? hover);
   const taken =
-    !!outlined && (occupied.has(`${outlined.q},${outlined.r}`) || hexEq(outlined, realm.cottageHex));
+    !!outlined &&
+    (occupied.has(`${outlined.q},${outlined.r}`) || hexEq(outlined, realm.cottageHex) || hexEq(outlined, bountyHex()));
   // An occupied tile says so by making its building glow, so a hex is only ever
   // drawn over bare ground — never on top of the art.
   if (outlined && !taken) {
@@ -900,6 +924,21 @@ function draw(): void {
       ctx.globalAlpha = 0.46;
       drawSprite(ghost, x, y, size, false);
       ctx.restore();
+    }
+  }
+
+  // The bounty board, greyed out until it does something.
+  {
+    const p = hexToPixel(bountyHex(), size);
+    const { x, y } = worldToScreen(p.x, p.y);
+    ctx.save();
+    ctx.filter = "grayscale(1) brightness(.92)";
+    ctx.globalAlpha = 0.62;
+    drawSprite("bounty-board", x, y, size, false);
+    ctx.restore();
+    if (hover && hexEq(hover, bountyHex())) {
+      const foot = spriteFoot("bounty-board", y, size);
+      plates.push(() => nameplate("Bounty board · soon", x, foot, "#d8d4cc", "#4a463e"));
     }
   }
 
@@ -1097,6 +1136,7 @@ function settlementAt(h: { q: number; r: number }): Settlement | undefined {
 function canLandOn(h: { q: number; r: number }, movingId: string): boolean {
   if (hexDistance(h, { q: 0, r: 0 }) > MAP_RADIUS) return false;
   if (hexEq(h, realm.cottageHex)) return false;
+  if (hexEq(h, bountyHex())) return false;
   const there = settlementAt(h);
   return !there || there.id === movingId;
 }
@@ -1287,6 +1327,12 @@ function clickHex(h: { q: number; r: number }): void {
   // Only empty ground places what is in hand. Clicking anything else is not a
   // placement, so the tool goes down rather than following you around the map
   // with no way left on screen to say how to stop it.
+  if (hexEq(h, bountyHex())) {
+    setBuilding(null);
+    toast("The bounty board isn't open yet.");
+    render();
+    return;
+  }
   if (hexEq(h, realm.cottageHex)) {
     selected = null;
     founding = null;
@@ -1675,7 +1721,7 @@ function renderSettlement(s: Settlement): string {
         <div class="kv"><span class="k">Account</span><span class="v mono">${esc(s.profileId)}</span></div>
         <div class="kv"><span class="k">Tokens</span><span class="v mono">${total.toLocaleString()}</span></div>
         <div class="kv sub"><span class="k">In · Out · Cached</span><span class="v mono">${tk.input.toLocaleString()} · ${tk.output.toLocaleString()} · ${tk.cacheRead.toLocaleString()}</span></div>
-        <div class="kv"><span class="k">Spent</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>
+        <div class="kv"><span class="k">Spent, all time</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>
         <div class="kv"><span class="k">Founded</span><span class="v">${esc(new Date(s.foundedAt).toLocaleDateString())}</span></div>
 
         <label>Asks before acting</label>
@@ -1684,6 +1730,9 @@ function renderSettlement(s: Settlement): string {
           realm.defaults.permissionMode ? `Realm default — ${modeLabel(realm.defaults.permissionMode)}` : "Realm default",
         )}</select>
         <p class="muted hint">${esc(modeHint(s.permissionMode ?? realm.defaults.permissionMode))} · Shift+Tab cycles</p>
+
+        <label>Budget ceiling (USD)</label>
+        ${renderBudget(s)}
 
         <label>Model</label>
         <select id="s-model">${modelOptions(
@@ -1878,7 +1927,16 @@ function render(): void {
   const before = scroller();
   const wasAtBottom = before.scrollHeight - before.scrollTop - before.clientHeight < 48;
   const keptScroll = before.scrollTop;
+  // A working settlement re-renders on every update. Carry a half-typed
+  // budget across, or it would be wiped mid-keystroke.
+  const typedBudget = document.activeElement?.id === "s-budget"
+    ? (document.activeElement as HTMLInputElement).value
+    : null;
   pane.innerHTML = renderSettlement(s);
+  if (typedBudget !== null) {
+    const box = pane.querySelector<HTMLInputElement>("#s-budget");
+    if (box) { box.value = typedBudget; box.focus(); }
+  }
   composer.classList.remove("hidden");
   hint.textContent = s.name;
   pane.querySelector("#details-toggle")?.addEventListener("click", () => {
@@ -1926,6 +1984,23 @@ function render(): void {
     void keep.setPermissionMode(s.id, value);
     render();
     toast(`${s.name}: ${modeLabel(value ?? realm.defaults.permissionMode)}`);
+  });
+  // Empty means follow the realm. Applied on change, not per keystroke, since
+  // a changed ceiling retires an idle governor so it respawns with the new one.
+  pane.querySelector("#s-budget")?.addEventListener("change", (e) => {
+    const raw = (e.target as HTMLInputElement).value.trim();
+    const n = Number(raw);
+    const value = raw === "" || !Number.isFinite(n) || n < 0 ? null : n;
+    s.maxBudgetUsd = value;
+    void keep.setBudget(s.id, value);
+    render();
+    toast(value === null ? `${s.name}: realm default budget` : `${s.name}: $${value.toFixed(2)} ceiling`);
+  });
+  pane.querySelector("#s-budget-reset")?.addEventListener("click", () => {
+    s.budgetResetAtUsd = s.costUsd;
+    void keep.resetBudget(s.id);
+    render();
+    toast(`${s.name}: budget count reset`);
   });
   pane.querySelector("#s-model")?.addEventListener("change", (e) => {
     const value = (e.target as HTMLSelectElement).value || null;
@@ -2294,6 +2369,7 @@ window.addEventListener("resize", () => {
     ...[
       ...SETTLEMENT_ART.map((a) => a.value),
       "cottage",
+      "bounty-board",
       "banner",
       "flag-pole",
       ...Array.from({ length: FLAG_FRAMES }, (_, i) => `flag-${i}`),

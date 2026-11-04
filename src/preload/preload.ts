@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("keep", {
   budgets: () => ipcRenderer.invoke("budgets"),
   models: () => ipcRenderer.invoke("models"),
   setModel: (id: string, model: string | null) => ipcRenderer.invoke("setModel", id, model),
+  setBudget: (id: string, usd: number | null) => ipcRenderer.invoke("setBudget", id, usd),
+  resetBudget: (id: string) => ipcRenderer.invoke("resetBudget", id),
   setPermissionMode: (id: string, mode: string | null) =>
     ipcRenderer.invoke("setPermissionMode", id, mode),
   setArt: (id: string, art: string) => ipcRenderer.invoke("setArt", id, art),

@@ -95,7 +95,12 @@ export type Settlement = {
   chat: ChatEntry[];
   /** Cumulative, from modelUsage on each result. */
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /** Lifetime spend, across every process this settlement has had. */
   costUsd: number;
+  /** Overrides the realm's ceiling. Null means follow it. */
+  maxBudgetUsd: number | null;
+  /** The ceiling counts spend above this. Set to costUsd by a reset. */
+  budgetResetAtUsd: number;
   foundedAt: number;
   lastActiveAt: number;
   /** Set when the governor dies, so the tile can show why. */
@@ -176,7 +181,7 @@ export type RealmDefaults = {
   /** Minutes of silence before a settlement is reaped. Camps go first. */
   campIdleMinutes: number;
   cityIdleMinutes: number;
-  /** Hard ceiling per settlement, enforced by the SDK. */
+  /** Default ceiling per settlement, counted against its spend since the last reset. */
   maxBudgetUsd: number;
 };
 
@@ -210,6 +215,9 @@ export type Api = {
   setPermissionMode(id: string, mode: PermissionModeValue | null): Promise<void>;
   /** Rebuild an existing settlement in a different house. Nothing but looks. */
   setArt(id: string, art: SettlementArt): Promise<void>;
+  /** Null follows the realm default. */
+  setBudget(id: string, usd: number | null): Promise<void>;
+  resetBudget(id: string): Promise<void>;
   toggleMaximize(): Promise<boolean>;
   onWindowState(cb: (big: boolean) => void): void;
   saveDefaults(d: RealmDefaults): Promise<void>;

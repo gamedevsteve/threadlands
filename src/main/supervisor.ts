@@ -108,14 +108,25 @@ export class Supervisor {
 
     let g = this.governors.get(id);
     if (!g) {
+      // The ceiling counts against everything spent since the last reset, not
+      // just this process, so a spawn only gets what is left of it.
+      const left = this.ceilingOf(s) - spentAgainstCeiling(s);
+      if (left < 0.01) {
+        s.chat.push({ role: "you", text, at: Date.now() });
+        s.chat.push({ role: "system", text: overBudget(s, this.ceilingOf(s)), at: Date.now() });
+        s.state = s.sessionId ? "dormant" : "idle";
+        this.emit(s);
+        return;
+      }
       g = new Governor(
         s,
         this.emit,
         this.profileDir(s.profileId),
-        this.maxBudgetUsd(),
+        left,
         s.model ?? this.defaultModel(),
         s.permissionMode ?? this.defaultMode(),
         this.executable,
+        (subtype) => this.afterTurn(id, subtype),
       );
       this.governors.set(id, g);
       g.start();
@@ -164,6 +175,74 @@ export class Supervisor {
     this.emit(s);
   }
 
+  private ceilingOf(s: Settlement): number {
+    return s.maxBudgetUsd ?? this.maxBudgetUsd();
+  }
+
+  /**
+   * A running governor was given its budget when it spawned, and the SDK has no
+   * way to change it mid-session. So a changed ceiling, or a reset, retires the
+   * governor once it is idle: the next thing you say respawns it with the new
+   * amount and its transcript intact.
+   */
+  private budgetStale = new Set<string>();
+
+  private retireForBudget(id: string): void {
+    const g = this.governors.get(id);
+    const s = this.settlements.get(id);
+    if (!g || !s) return;
+    if (s.state === "idle") this.reap(id);
+    else this.budgetStale.add(id);
+  }
+
+  /** Called by a governor at the end of every turn. */
+  private afterTurn(id: string, subtype: string): void {
+    const s = this.settlements.get(id);
+    if (!s) return;
+    if (subtype === "error_max_budget_usd") {
+      s.chat.push({ role: "system", text: overBudget(s, this.ceilingOf(s)), at: Date.now() });
+      this.budgetStale.delete(id);
+      this.reapIfStillIdle(id);
+      return;
+    }
+    if (this.budgetStale.has(id) && s.state === "idle") {
+      this.budgetStale.delete(id);
+      this.reapIfStillIdle(id);
+    }
+  }
+
+  /** Deferred, because this runs inside the governor's own pump; and only if
+   *  nothing was said in between, or that message would go down with it. */
+  private reapIfStillIdle(id: string): void {
+    setTimeout(() => {
+      if (this.settlements.get(id)?.state === "idle") this.reap(id);
+    }, 0);
+  }
+
+  /** Null follows the realm default. */
+  setBudget(id: string, usd: number | null): void {
+    const s = this.settlements.get(id);
+    if (!s) return;
+    s.maxBudgetUsd = usd;
+    this.retireForBudget(id);
+    this.emit(s);
+  }
+
+  /** Start counting against the ceiling from now. Spent stays a lifetime total. */
+  resetBudget(id: string): void {
+    const s = this.settlements.get(id);
+    if (!s) return;
+    s.budgetResetAtUsd = s.costUsd;
+    this.retireForBudget(id);
+    this.emit(s);
+  }
+
+  defaultBudgetChanged(): void {
+    for (const id of [...this.governors.keys()]) {
+      if (this.settlements.get(id)?.maxBudgetUsd === null) this.retireForBudget(id);
+    }
+  }
+
   /** Settlements following the realm default need telling when it changes. */
   async defaultModelChanged(): Promise<void> {
     for (const [id, g] of this.governors) {
@@ -187,6 +266,7 @@ export class Supervisor {
 
   /** Reap: kill the process, keep the sessionId. The settlement goes dormant. */
   reap(id: string): void {
+    this.budgetStale.delete(id);
     const g = this.governors.get(id);
     if (!g) return;
     g.stop();
@@ -221,12 +301,24 @@ export class Supervisor {
   }
 }
 
+/** Spent since the ceiling was last reset. */
+export function spentAgainstCeiling(s: Settlement): number {
+  return Math.max(0, s.costUsd - (s.budgetResetAtUsd ?? 0));
+}
+
+function overBudget(s: Settlement, ceiling: number): string {
+  return `Out of budget: $${spentAgainstCeiling(s).toFixed(2)} of its $${ceiling.toFixed(2)} ceiling is spent. ` +
+    `Raise the ceiling or reset the count in this settlement's details, then send your message again.`;
+}
+
 /** One live session. Spawns lazily, resumes when it has a sessionId. */
 class Governor {
   private q: Query | null = null;
   private input = createInputStream();
   private pending: ((r: PermissionResult) => void) | null = null;
   private stopped = false;
+  /** What this process has spent so far; the SDK reports a running total per process. */
+  private processCost = 0;
 
   constructor(
     private readonly s: Settlement,
@@ -236,6 +328,7 @@ class Governor {
     private model: string | null,
     private mode: PermissionModeValue,
     private readonly executable: string | undefined,
+    private readonly onTurnEnd: (subtype: string) => void,
   ) {}
 
   push(text: string): void {
@@ -346,7 +439,13 @@ class Governor {
       case "result": {
         // The session id is re-emitted every turn; the latest result is truth.
         s.sessionId = msg.session_id;
-        s.costUsd = msg.total_cost_usd ?? s.costUsd;
+        // total_cost_usd starts again at zero with every process, so add the
+        // difference rather than taking it: Spent is the settlement's lifetime.
+        {
+          const total = msg.total_cost_usd ?? this.processCost;
+          s.costUsd += Math.max(0, total - this.processCost);
+          this.processCost = total;
+        }
         for (const u of Object.values(msg.modelUsage ?? {})) {
           const m = u as any;
           s.tokens.input += m.inputTokens ?? 0;
@@ -354,12 +453,13 @@ class Governor {
           s.tokens.cacheRead += m.cacheReadInputTokens ?? 0;
           s.tokens.cacheWrite += m.cacheCreationInputTokens ?? 0;
         }
-        if (msg.subtype !== "success") {
+        if (msg.subtype !== "success" && msg.subtype !== "error_max_budget_usd") {
           s.chat.push({ role: "system", text: `turn ended: ${msg.subtype}`, at: Date.now() });
         }
         s.state = s.flag ? "needs_you" : "idle";
         s.lastActiveAt = Date.now();
         this.emit(s);
+        this.onTurnEnd(msg.subtype);
         break;
       }
       case "system":

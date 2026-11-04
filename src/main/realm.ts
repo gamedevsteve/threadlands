@@ -71,6 +71,8 @@ export class RealmStore {
         // in on load so the rest of the app never has to wonder.
         s.model ??= null;
         s.permissionMode ??= null;
+        s.maxBudgetUsd ??= null;
+        s.budgetResetAtUsd ??= 0;
         // Founded before houses existed, or wearing one that no longer suits
         // its kind: artFor settles it either way.
         s.art = artFor(s.kind, s.art);

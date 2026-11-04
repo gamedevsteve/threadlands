@@ -496,6 +496,9 @@
   .md img { max-width: 100%; }
 
   /* Pinned to the foot of the panel: never shrinks, never scrolls away. */
+  .budgetrow { display: flex; gap: 8px; }
+  .budgetrow input { flex: 1; min-width: 0; }
+  .hint.overbudget { color: var(--flag); }
   .composer { flex: none; border-top: 1px solid var(--edge); padding: 10px 16px 16px; }
   .composer .btns { margin: 8px 0 0; }
 
