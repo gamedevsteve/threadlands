@@ -20,9 +20,10 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   cottage, takes effect without a restart: an idle governor is retired and the
   next message brings it back with the new amount and its memory intact. A
   settlement that is out of budget says so instead of failing mid-task.
-- **The bounty board** stands west of the cottage, one ring out, greyed out
+- **The bounty board** stands due west of the cottage, level with it, greyed out
   until it does something. A third button on the map rail flies to it.
 - `⌘=` / `⌘-` / `⌘0` size the conversation text.
+- The hex under the pointer shows in the top bar: its coordinate and what stands on it.
 - Your own messages render markdown, Slack style: `*bold*`, `_italic_`.
 
 ### Fixed

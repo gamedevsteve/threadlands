@@ -54,10 +54,10 @@ const keep = (window as unknown as { keep: Keep }).keep;
 
 const MAP_RADIUS = 14;        // rings of hexes from the cottage
 /**
- * The bounty board: due west of the cottage, with one ring of hexes between
- * them. Not built yet, so it stands greyed out and nothing can be raised on it.
+ * The bounty board: due west of the cottage, level with it, six columns out.
+ * Not built yet, so it stands greyed out and nothing can be raised on it.
  */
-const BOUNTY_OFFSET = { q: -2, r: 1 };
+const BOUNTY_OFFSET = { q: -6, r: 3 };
 function bountyHex(): { q: number; r: number } {
   return { q: realm.cottageHex.q + BOUNTY_OFFSET.q, r: realm.cottageHex.r + BOUNTY_OFFSET.r };
 }
@@ -1157,6 +1157,19 @@ canvas.addEventListener("mousedown", (e) => {
   canvas.classList.add("dragging");
 });
 
+/** The hex under the pointer, in the top bar: its coordinate and what is on it. */
+const coordEl = document.getElementById("coord")!;
+function showCoord(h: { q: number; r: number } | null): void {
+  if (!h || !realm) { coordEl.textContent = ""; return; }
+  const num = (n: number) => (n < 0 ? `−${-n}` : String(n));
+  const what = hexEq(h, realm.cottageHex)
+    ? realm.defaults.cottageName || "the cottage"
+    : hexEq(h, bountyHex())
+      ? "bounty board"
+      : settlementAt(h)?.name ?? "";
+  coordEl.textContent = `q ${num(h.q)} · r ${num(h.r)}${what ? `  ·  ${what}` : ""}`;
+}
+
 window.addEventListener("mousemove", (e) => {
   const r = canvas.getBoundingClientRect();
   const w = screenToWorld(e.clientX - r.left, e.clientY - r.top);
@@ -1164,6 +1177,7 @@ window.addEventListener("mousemove", (e) => {
   const nextHover = hexDistance(h, { q: 0, r: 0 }) <= MAP_RADIUS ? h : null;
   if (!!nextHover !== !!hover || (nextHover && hover && !hexEq(nextHover, hover))) invalidate();
   hover = nextHover;
+  showCoord(e.target === canvas ? nextHover : null);
 
   if (drag) {
     invalidate();

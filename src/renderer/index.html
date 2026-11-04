@@ -103,6 +103,7 @@
     font-weight: 400;
   }
   .topbar .where { color: rgba(245, 234, 212, .62); font-size: 12px; line-height: 1; }
+  .topbar .coord { margin-left: 14px; white-space: pre; font-variant-numeric: tabular-nums; }
   .topbar .spacer { flex: 1; }
   .topbar button {
     -webkit-app-region: no-drag;
@@ -539,6 +540,7 @@
   <div class="topbar">
     <h1>Threadlands</h1>
     <span class="where" id="hint"></span>
+    <span class="where coord" id="coord"></span>
     <span class="spacer"></span>
     <button id="zoomwin" title="Fill the screen">Fill screen</button>
   </div>
