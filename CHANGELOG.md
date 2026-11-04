@@ -21,7 +21,7 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   next message brings it back with the new amount and its memory intact. A
   settlement that is out of budget says so instead of failing mid-task.
 - **The bounty board** stands west of the cottage, one ring out, greyed out
-  until it does something.
+  until it does something. A third button on the map rail flies to it.
 - `⌘=` / `⌘-` / `⌘0` size the conversation text.
 - Your own messages render markdown, Slack style: `*bold*`, `_italic_`.
 

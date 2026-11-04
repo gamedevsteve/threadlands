@@ -2204,6 +2204,15 @@ document.getElementById("go-home")!.addEventListener("click", () => {
   flyTo(0, 0, ZOOM_DEFAULT);
 });
 
+// Zero in on the bounty board: centred, and close enough to read it.
+const BOUNTY_ZOOM = 1.5;
+document.getElementById("go-bounty")!.addEventListener("click", () => {
+  // Camera units are screen pixels at the target zoom, so the hex is measured
+  // at that zoom, rounded as hexSize() rounds it.
+  const p = hexToPixel(bountyHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, BOUNTY_ZOOM);
+});
+
 const zoomWin = document.getElementById("zoomwin") as HTMLButtonElement;
 const setZoomLabel = (big: boolean) => { zoomWin.textContent = big ? "Restore" : "Fill screen"; };
 zoomWin.addEventListener("click", async () => setZoomLabel(await keep.toggleMaximize()));
