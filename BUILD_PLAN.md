@@ -534,6 +534,84 @@ have it group and label, never collapse the finding itself.
 
 ---
 
+### The panel's layers
+
+Decided 2026-11-09. The side panel is a stack of layers, not a set of pages.
+
+- Clicking into something slides a new layer in from the right over the one
+  beneath, which stays where it was.
+- The header is a breadcrumb: `Bounty board › Shaheen's App launch › Fix login
+  redirect`. Every crumb is clickable and drops back to that layer.
+- Escape pops one layer; at the top it closes the panel. ⌘[ also pops.
+- Clicking something on the map starts a fresh stack. A link to another place
+  (a bounty's assigned city, say) starts that place's stack too, rather than
+  nesting it.
+- Going back to a building opens it at its top layer, not wherever you left it.
+- The same model everywhere: `Threadlands › Details` replaces the info button's
+  sheet, `Cottage › Settings` and `Cottage › Accounts` split the long cottage
+  page, and later `Library › …` and `Post office › …`.
+
+### The bounty board
+
+Decided 2026-11-09. Your to-do list, and the realm's. It stands west of the
+cottage, level with it.
+
+**Ledgers hold bounties.** You create both by hand. A ledger is a named
+checklist; a bounty is one item on it, and belongs to exactly one ledger.
+
+- A ledger can be granted to cities, which can then **read** its bounties. That
+  is the whole of a city's access: reading, plus reporting to the ranger (below).
+- A ledger granted to nobody is just yours: "go to the bank today" needs no
+  folder and no city.
+- A bounty can be moved to another ledger, because what looked project-specific
+  often turns out to be platform-wide. An assignment survives a move, since
+  assigning is its own explicit grant; who else can read it follows the new
+  ledger.
+- A bounty is open, assigned or done. Done ones fold away but stay readable.
+  Filters for each state sit at the top of a ledger, not as a layer.
+- When a bounty is closed, its branch and commit are read from git in the
+  assigned city's folder and stored on it.
+
+**Every bounty keeps a log**, newest at the bottom: your comments, the ranger's,
+and entries written automatically, so it doubles as its history: created,
+moved from one ledger to another, assigned, reported fixed, closed with branch and commit.
+
+**The ranger keeps the board.** A Claude of its own, which you talk to in the
+board's panel the way you talk to a governor. Its world is the board.
+
+- You brain-dump issues at it; it proposes how to organise them, as checklist
+  bounties filed into ledgers, and you accept or adjust before they are made.
+- It can create bounties, move them between ledgers and comment, on its own.
+- It asks before **assigning** (that puts a city to work and spends money) and
+  before **closing**.
+- It runs in the realm's folder with board tools only, and no access to code.
+  When it needs to know the state of a city's work, the Keep checks git in that
+  folder for it and hands back the answer: branch, last commit, anything
+  uncommitted, anything unpushed.
+
+**Closing a bounty.** A governor whose city can read a ledger can tell the
+ranger it has fixed a bounty. The ranger checks the work through the Keep and
+raises a flag on the board rather than closing it:
+
+> Shaheen's App says it fixed *Fix login redirect*. It isn't committed or
+> pushed yet. Have it commit and push before this counts as fixed?
+
+The flag offers: close it anyway; send the governor back to commit and push
+first; or leave it open. The answer goes into the bounty's log.
+
+**Storage.** `board.json` beside `realm.json`, written atomically. Keeping it out
+of the realm file means a board change can never cost a settlement its session.
+
+**Build order.** The first two are panel and data work, safe to build in the
+app; the rest change how sessions start, so they are built from a terminal.
+
+1. The panel's layer stack, moving the existing details sheet onto it.
+2. Ledgers and bounties by hand: `board.json`, the three layers, moves, the log.
+   Useful on its own; assigning sends the city a message.
+3. The ranger: a new kind of session, with board tools and the Keep's git check.
+4. Governor tools: read granted ledgers, report a bounty fixed to the ranger.
+5. The closing flag.
+
 ## 6. Metaphor to API
 
 | Threadlands | Agent SDK |
