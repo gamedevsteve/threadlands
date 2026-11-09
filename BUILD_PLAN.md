@@ -605,9 +605,9 @@ of the realm file means a board change can never cost a settlement its session.
 **Build order.** The first two are panel and data work, safe to build in the
 app; the rest change how sessions start, so they are built from a terminal.
 
-1. The panel's layer stack, moving the existing details sheet onto it.
+1. The panel's layer stack, moving the existing details sheet onto it. ✅
 2. Ledgers and bounties by hand: `board.json`, the three layers, moves, the log.
-   Useful on its own; assigning sends the city a message.
+   Useful on its own; assigning sends the city a message. ✅
 3. The ranger: a new kind of session, with board tools and the Keep's git check.
 4. Governor tools: read granted ledgers, report a bounty fixed to the ranger.
 5. The closing flag.

@@ -231,4 +231,55 @@ export type Api = {
   onRemoved(cb: (id: string) => void): void;
   onBudgets(cb: (b: AccountBudget[]) => void): void;
   onFocusSettlement(cb: (id: string) => void): void;
+  getBoard(): Promise<Board>;
+  /** Apply a change; resolves with the board, or rejects with a reason to show. */
+  boardOp(op: BoardOp): Promise<Board>;
+  onBoard(cb: (b: Board) => void): void;
 };
+
+// ── the bounty board ──────────────────────────────────────────────────────────
+
+/** One line in a bounty's history: a comment, or something that happened to it. */
+export type BountyLogEntry = { at: number; who: "you" | "ranger" | "board"; text: string };
+
+export type BountyState = "open" | "assigned" | "done";
+
+export type Bounty = {
+  id: string;
+  ledgerId: string;
+  title: string;
+  notes: string;
+  state: BountyState;
+  /** The settlement working it, or null. Survives a move between ledgers. */
+  assignee: string | null;
+  /** Read from git in the assignee's folder when the bounty is closed. */
+  branch: string | null;
+  commit: string | null;
+  log: BountyLogEntry[];
+  createdAt: number;
+  doneAt: number | null;
+};
+
+/** A named checklist of bounties. Granted cities can read it; no grants means it is yours alone. */
+export type Ledger = {
+  id: string;
+  name: string;
+  grants: string[];
+  createdAt: number;
+};
+
+export type Board = { ledgers: Ledger[]; bounties: Bounty[] };
+
+/** Everything you can do to the board by hand. The Keep applies these and pushes the board back. */
+export type BoardOp =
+  | { op: "addLedger"; name: string }
+  | { op: "renameLedger"; id: string; name: string }
+  | { op: "deleteLedger"; id: string }
+  | { op: "setGrants"; id: string; grants: string[] }
+  | { op: "addBounty"; ledgerId: string; title: string }
+  | { op: "editBounty"; id: string; title?: string; notes?: string }
+  | { op: "moveBounty"; id: string; ledgerId: string }
+  | { op: "assign"; id: string; settlementId: string | null }
+  | { op: "setDone"; id: string; done: boolean }
+  | { op: "comment"; id: string; text: string }
+  | { op: "deleteBounty"; id: string };

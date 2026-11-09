@@ -18,6 +18,7 @@ import type {
   SettlementArt,
   SettlementKind,
 } from "../shared/types.js";
+import type { Board, BoardOp, Bounty, Ledger } from "../shared/types.js";
 
 type Keep = {
   getRealm(): Promise<Realm>;
@@ -48,6 +49,9 @@ type Keep = {
   onRemoved(cb: (id: string) => void): void;
   onBudgets(cb: (b: AccountBudget[]) => void): void;
   onFocusSettlement(cb: (id: string) => void): void;
+  getBoard(): Promise<Board>;
+  boardOp(op: BoardOp): Promise<Board>;
+  onBoard(cb: (b: Board) => void): void;
 };
 const keep = (window as unknown as { keep: Keep }).keep;
 
@@ -186,6 +190,16 @@ const expandedRuns = new Set<string>();
  */
 let layers: string[] = [];
 const LAYER_LABELS: Record<string, string> = { details: "Details" };
+/** A layer the board is about to slide in: rendered closed first, so it can animate. */
+let entering: string | null = null;
+
+let boardOpen = false;
+let board: Board = { ledgers: [], bounties: [] };
+let boardLedger: string | null = null;
+let boardBounty: string | null = null;
+let boardFilter: "open" | "done" | "all" = "open";
+/** Delete is two clicks: the first arms it. */
+let deleteArmed: string | null = null;
 let razeArmed: string | null = null;
 let razeTyped = "";
 
@@ -272,10 +286,16 @@ function crumbs(root: string, rootClass: string, status: string): string {
   ];
   layers.forEach((id, i) => {
     const last = i === layers.length - 1;
-    parts.push(`<span class="sep">›</span><button class="crumb${last ? " current" : ""}" data-depth="${i + 1}">${esc(LAYER_LABELS[id] ?? id)}</button>`);
+    parts.push(`<span class="sep">›</span><button class="crumb${last ? " current" : ""}" data-depth="${i + 1}">${esc(layerLabel(id))}</button>`);
   });
   if (!layers.length) parts.push(`<span class="muted">${esc(status)}</span>`);
   return parts.join("");
+}
+
+function layerLabel(id: string): string {
+  if (id === "ledger") return board.ledgers.find((l) => l.id === boardLedger)?.name ?? "Ledger";
+  if (id === "bounty") return board.bounties.find((b) => b.id === boardBounty)?.title ?? "Bounty";
+  return LAYER_LABELS[id] ?? id;
 }
 
 function bindCrumbs(): void {
@@ -300,7 +320,10 @@ function syncLayers(): void {
   btn?.setAttribute("title", detailsOpen ? "Hide details" : "Show details");
   const nav = pane.querySelector<HTMLElement>("#crumbs");
   const s = selected ? byId.get(selected) : null;
-  if (nav && s) {
+  if (nav && boardOpen) {
+    nav.innerHTML = crumbs("Bounty board", "", boardStatus());
+    bindCrumbs();
+  } else if (nav && s) {
     nav.innerHTML = crumbs(s.name, s.state === "dormant" ? "muted" : "", `${s.kind} · ${stateWordOf(s)}`);
     bindCrumbs();
   }
@@ -313,6 +336,15 @@ function stateWordOf(s: Settlement): string {
 function pushLayer(id: string): void {
   if (layers.includes(id)) return;
   layers.push(id);
+  if (boardOpen) {
+    // The board's layers are drawn from what was clicked, so render them
+    // first, closed, then open them once the browser has a position to
+    // slide from.
+    entering = id;
+    render();
+    pane.querySelector<HTMLElement>(`.layer[data-layer="${id}"]`)?.getBoundingClientRect();
+    entering = null;
+  }
   syncLayers();
 }
 
@@ -998,18 +1030,21 @@ function draw(): void {
     }
   }
 
-  // The bounty board, greyed out until it does something.
+  // The bounty board. Lit like the cottage when open or under the pointer.
   {
     const p = hexToPixel(bountyHex(), size);
     const { x, y } = worldToScreen(p.x, p.y);
-    ctx.save();
-    ctx.filter = "grayscale(1) brightness(.92)";
-    ctx.globalAlpha = 0.62;
-    drawSprite("bounty-board", x, y, size, false);
-    ctx.restore();
-    if (hover && hexEq(hover, bountyHex())) {
+    const hovered = !!hover && hexEq(hover, bountyHex());
+    const glow: Glow[] = boardOpen
+      ? [{ colour: "#e0b050", blur: size * 0.26, passes: 4 }]
+      : hovered
+        ? [{ colour: "rgba(240,246,248,.85)", blur: size * 0.14, passes: 2 }]
+        : [];
+    drawSprite("bounty-board", x, y, size, false, glow);
+    if (camera.zoom >= BANNER_ALL_BELOW || boardOpen || hovered) {
       const foot = spriteFoot("bounty-board", y, size);
-      plates.push(() => nameplate("Bounty board · soon", x, foot, "#d8d4cc", "#4a463e"));
+      const open = board.bounties.filter((b) => b.state !== "done").length;
+      plates.push(() => nameplate(open ? `Bounties · ${open}` : "Bounties", x, foot, "#f0dcae", "#3a2a12"));
     }
   }
 
@@ -1414,14 +1449,14 @@ function clickHex(h: { q: number; r: number }): void {
   // with no way left on screen to say how to stop it.
   if (hexEq(h, bountyHex())) {
     setBuilding(null);
-    toast("The bounty board isn't open yet.");
-    render();
+    openBoard();
     return;
   }
   if (hexEq(h, realm.cottageHex)) {
     selected = null;
     founding = null;
     cottageOpen = true;
+    boardOpen = false;
     setBuilding(null);
     void refreshBudgets();
     render();
@@ -1429,6 +1464,7 @@ function clickHex(h: { q: number; r: number }): void {
   }
   const s = [...byId.values()].find((x) => hexEq(x.hex, h));
   cottageOpen = false;
+  boardOpen = false;
   if (s) {
     selected = s.id;
     founding = null;
@@ -1833,11 +1869,299 @@ function renderSettlement(s: Settlement): string {
     </div>`;
 }
 
+// ── the bounty board ──────────────────────────────────────────────────────────
+
+function openBoard(): void {
+  selected = null;
+  cottageOpen = false;
+  founding = null;
+  boardOpen = true;
+  layers = [];
+  boardLedger = null;
+  boardBounty = null;
+  deleteArmed = null;
+  render();
+}
+
+function openCount(ledgerId?: string): number {
+  return board.bounties.filter((b) => b.state !== "done" && (!ledgerId || b.ledgerId === ledgerId)).length;
+}
+
+function boardStatus(): string {
+  const n = openCount();
+  return n ? `${n} open` : "nothing open";
+}
+
+function settlementName(id: string | null): string {
+  return (id && byId.get(id)?.name) || "";
+}
+
+/** Send a change to the Keep. The board comes back by push; errors become a toast. */
+async function boardDo(op: BoardOp): Promise<boolean> {
+  try {
+    board = await keep.boardOp(op);
+    return true;
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    return false;
+  }
+}
+
+function renderLedgers(): string {
+  const rows = board.ledgers
+    .map((l) => {
+      const n = openCount(l.id);
+      const who = l.grants.length
+        ? `read by ${l.grants.map(settlementName).filter(Boolean).join(", ")}`
+        : "yours alone";
+      return `<button class="ledgerrow" data-ledger="${esc(l.id)}">
+          <span class="lname">${esc(l.name)}</span>
+          <span class="muted">${n} open · ${esc(who)}</span>
+        </button>`;
+    })
+    .join("");
+  return `<h2>Ledgers</h2>
+    <div class="ledgers">${rows}</div>
+    <div class="addrow">
+      <input id="b-new-ledger" maxlength="80" placeholder="A new ledger… (Enter)" />
+    </div>
+    <p class="muted hint">A ledger is a checklist. Share one with cities in it, or keep it to yourself.</p>`;
+}
+
+function renderLedger(l: Ledger | undefined): string {
+  if (!l) return "";
+  const all = board.bounties.filter((b) => b.ledgerId === l.id);
+  const shown = all
+    .filter((b) => (boardFilter === "all" ? true : boardFilter === "done" ? b.state === "done" : b.state !== "done"))
+    .sort((a, b) => (a.state === "done" ? 1 : 0) - (b.state === "done" ? 1 : 0) || a.createdAt - b.createdAt);
+  const items = shown
+    .map((b) => `<li class="bountyrow ${b.state}">
+        <input type="checkbox" data-done="${esc(b.id)}" ${b.state === "done" ? "checked" : ""} title="${b.state === "done" ? "Open again" : "Mark done"}" />
+        <button class="btitle" data-bounty="${esc(b.id)}">${esc(b.title)}</button>
+        ${b.assignee ? `<span class="muted who">${esc(settlementName(b.assignee))}</span>` : ""}
+      </li>`)
+    .join("");
+  const seg = (v: typeof boardFilter, label: string) =>
+    `<button data-filter="${v}" class="${boardFilter === v ? "on" : ""}">${label}</button>`;
+  const cities = [...byId.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => `<label class="grant"><input type="checkbox" data-grant="${esc(s.id)}" ${l.grants.includes(s.id) ? "checked" : ""} /> ${esc(s.name)} <span class="muted">${esc(s.kind)}</span></label>`)
+    .join("");
+  return `<div class="seg" id="b-filter">${seg("open", `Open · ${openCount(l.id)}`)}${seg("done", "Done")}${seg("all", "All")}</div>
+    <div class="addrow"><input id="b-new-bounty" maxlength="200" placeholder="Post a bounty… (Enter)" /></div>
+    <ul class="checklist">${items || `<li class="muted">${boardFilter === "done" ? "Nothing done yet." : "Nothing here."}</li>`}</ul>
+
+    <label>Read by</label>
+    <div class="grants">${cities || '<span class="muted">No settlements yet.</span>'}</div>
+    <p class="muted hint">Cities ticked here will be able to read this ledger once governors have board tools. None ticked: yours alone.</p>
+
+    <label>Ledger name</label>
+    <input id="b-ledger-name" maxlength="80" value="${esc(l.name)}" />
+    <div class="btns">
+      <button id="b-ledger-delete" class="danger">${deleteArmed === l.id ? "Click again to delete" : "Delete ledger"}</button>
+    </div>`;
+}
+
+function renderBounty(b: Bounty | undefined): string {
+  if (!b) return "";
+  const when = (t: number) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const log = b.log
+    .map((e) => `<div class="logline ${e.who}">
+        <div class="muted meta">${esc(e.who === "you" ? realm.defaults.cottageName || "You" : e.who === "ranger" ? "Ranger" : "Board")} · ${esc(when(e.at))}</div>
+        <div class="${e.who === "board" ? "" : "md"}">${e.who === "board" ? esc(e.text) : markdown(e.text, e.who === "you" ? yourMarkdown : marked)}</div>
+      </div>`)
+    .join("");
+  const people = [...byId.values()].sort((a, c) => a.name.localeCompare(c.name));
+  const assignOpts = [`<option value="">Nobody</option>`]
+    .concat(people.map((s) => `<option value="${esc(s.id)}" ${b.assignee === s.id ? "selected" : ""}>${esc(s.name)}</option>`))
+    .join("");
+  const ledgerOpts = board.ledgers
+    .map((l) => `<option value="${esc(l.id)}" ${b.ledgerId === l.id ? "selected" : ""}>${esc(l.name)}</option>`)
+    .join("");
+  const stateWord = b.state === "done" ? "Done" : b.state === "assigned" ? "Assigned" : "Open";
+  return `<label>Bounty</label>
+    <input id="b-title" maxlength="200" value="${esc(b.title)}" />
+    <label>Notes</label>
+    <textarea id="b-notes" rows="4" placeholder="What it is, where to look, how to know it is done.">${esc(b.notes)}</textarea>
+
+    <div class="kv"><span class="k">State</span><span class="v">${stateWord}</span></div>
+    ${b.branch ? `<div class="kv"><span class="k">Branch · commit</span><span class="v mono">${esc(b.branch)} · ${esc(b.commit ?? "")}</span></div>` : ""}
+
+    <label>Assigned to</label>
+    <select id="b-assign">${assignOpts}</select>
+    <p class="muted hint">Assigning sends the bounty to that settlement as a message, and it starts work.</p>
+
+    <label>Ledger</label>
+    <select id="b-move">${ledgerOpts}</select>
+
+    <div class="btns">
+      <button id="b-done" class="primary">${b.state === "done" ? "Open again" : "Mark done"}</button>
+      <button id="b-delete" class="danger">${deleteArmed === b.id ? "Click again to delete" : "Delete"}</button>
+    </div>
+
+    <label>Log</label>
+    <div class="blog">${log}</div>
+    <textarea id="b-comment" rows="2" placeholder="Add to the log… (Enter, Shift+Enter for a new line)"></textarea>`;
+}
+
+function renderBoardPane(): void {
+  // The board re-renders whenever it changes. Carry over whatever was being
+  // typed, and where each sheet was scrolled, so nothing jumps or is lost.
+  const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+  const typed = active && pane.contains(active) && active.id && "value" in active
+    ? { id: active.id, value: active.value, start: active.selectionStart, end: active.selectionEnd }
+    : null;
+  const scrolls = new Map<string, number>();
+  pane.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => scrolls.set(el.dataset.scroll!, el.scrollTop));
+
+  // Something open on the board may have gone: fall back to what still exists.
+  if (boardLedger && !board.ledgers.some((l) => l.id === boardLedger)) { boardLedger = null; layers = []; }
+  if (boardBounty && !board.bounties.some((b) => b.id === boardBounty)) { boardBounty = null; layers = layers.filter((x) => x !== "bounty"); }
+
+  const isOpen = (id: string) => (layers.includes(id) && id !== entering ? " open" : "");
+  pane.innerHTML = `<div class="shead">
+      <nav class="who crumbs" id="crumbs">${crumbs("Bounty board", "", boardStatus())}</nav>
+    </div>
+    <div class="chatwrap">
+      <div class="chatscroll boardsheet" data-scroll="root">${renderLedgers()}</div>
+      <div class="layer${isOpen("ledger")}" data-layer="ledger" data-scroll="ledger" style="z-index: 3">${renderLedger(board.ledgers.find((l) => l.id === boardLedger))}</div>
+      <div class="layer${isOpen("bounty")}" data-layer="bounty" data-scroll="bounty" style="z-index: 4">${renderBounty(board.bounties.find((b) => b.id === boardBounty))}</div>
+    </div>`;
+  composer.classList.add("hidden");
+  hint.textContent = "the bounty board";
+
+  pane.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => {
+    const top = scrolls.get(el.dataset.scroll!);
+    if (top !== undefined) el.scrollTop = top;
+  });
+  if (typed) {
+    const el = pane.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typed.id)}`);
+    if (el) {
+      el.value = typed.value;
+      el.focus();
+      try { el.setSelectionRange(typed.start, typed.end); } catch { /* not a text field */ }
+    }
+  }
+  bindCrumbs();
+  bindBoard();
+}
+
+function bindBoard(): void {
+  const $ = <T extends HTMLElement>(sel: string) => pane.querySelector<T>(sel);
+  const onEnter = (el: HTMLInputElement | HTMLTextAreaElement | null, go: (v: string) => void) =>
+    el?.addEventListener("keydown", (e) => {
+      const k = e as KeyboardEvent;
+      if (k.key !== "Enter" || k.shiftKey || k.isComposing) return;
+      k.preventDefault();
+      const v = el.value.trim();
+      if (!v) return;
+      el.value = "";
+      go(v);
+    });
+
+  // Ledgers
+  pane.querySelectorAll<HTMLButtonElement>(".ledgerrow").forEach((b) =>
+    b.addEventListener("click", () => {
+      boardLedger = b.dataset.ledger!;
+      boardBounty = null;
+      deleteArmed = null;
+      layers = [];
+      pushLayer("ledger");
+    }),
+  );
+  onEnter($<HTMLInputElement>("#b-new-ledger"), (name) => void boardDo({ op: "addLedger", name }));
+
+  // A ledger
+  const l = board.ledgers.find((x) => x.id === boardLedger);
+  pane.querySelectorAll<HTMLButtonElement>("#b-filter button").forEach((b) =>
+    b.addEventListener("click", () => {
+      boardFilter = b.dataset.filter as typeof boardFilter;
+      render();
+    }),
+  );
+  if (l) onEnter($<HTMLInputElement>("#b-new-bounty"), (title) => void boardDo({ op: "addBounty", ledgerId: l.id, title }));
+  pane.querySelectorAll<HTMLInputElement>("[data-done]").forEach((c) =>
+    c.addEventListener("change", () => void boardDo({ op: "setDone", id: c.dataset.done!, done: c.checked })),
+  );
+  pane.querySelectorAll<HTMLButtonElement>(".btitle").forEach((b) =>
+    b.addEventListener("click", () => {
+      boardBounty = b.dataset.bounty!;
+      deleteArmed = null;
+      layers = layers.filter((x) => x !== "bounty");
+      pushLayer("bounty");
+    }),
+  );
+  pane.querySelectorAll<HTMLInputElement>("[data-grant]").forEach((c) =>
+    c.addEventListener("change", () => {
+      if (!l) return;
+      const grants = [...pane.querySelectorAll<HTMLInputElement>("[data-grant]")].filter((x) => x.checked).map((x) => x.dataset.grant!);
+      void boardDo({ op: "setGrants", id: l.id, grants });
+    }),
+  );
+  $<HTMLInputElement>("#b-ledger-name")?.addEventListener("change", (e) => {
+    if (l) void boardDo({ op: "renameLedger", id: l.id, name: (e.target as HTMLInputElement).value });
+  });
+  $<HTMLButtonElement>("#b-ledger-delete")?.addEventListener("click", async () => {
+    if (!l) return;
+    if (deleteArmed !== l.id) { deleteArmed = l.id; render(); return; }
+    deleteArmed = null;
+    if (await boardDo({ op: "deleteLedger", id: l.id })) { layers = []; boardLedger = null; }
+    render();
+  });
+
+  // A bounty
+  const b = board.bounties.find((x) => x.id === boardBounty);
+  if (!b) return;
+  $<HTMLInputElement>("#b-title")?.addEventListener("change", (e) =>
+    void boardDo({ op: "editBounty", id: b.id, title: (e.target as HTMLInputElement).value }));
+  $<HTMLTextAreaElement>("#b-notes")?.addEventListener("change", (e) =>
+    void boardDo({ op: "editBounty", id: b.id, notes: (e.target as HTMLTextAreaElement).value }));
+  $<HTMLSelectElement>("#b-assign")?.addEventListener("change", async (e) => {
+    const v = (e.target as HTMLSelectElement).value || null;
+    if (await boardDo({ op: "assign", id: b.id, settlementId: v })) {
+      toast(v ? `Sent to ${settlementName(v)}` : "Unassigned");
+    }
+    render();
+  });
+  $<HTMLSelectElement>("#b-move")?.addEventListener("change", async (e) => {
+    const to = (e.target as HTMLSelectElement).value;
+    if (await boardDo({ op: "moveBounty", id: b.id, ledgerId: to })) {
+      // Follow it, so the breadcrumb says where it now lives.
+      boardLedger = to;
+      toast(`Moved to ${board.ledgers.find((x) => x.id === to)?.name ?? "another ledger"}`);
+    }
+    render();
+  });
+  $<HTMLButtonElement>("#b-done")?.addEventListener("click", () =>
+    void boardDo({ op: "setDone", id: b.id, done: b.state !== "done" }));
+  $<HTMLButtonElement>("#b-delete")?.addEventListener("click", async () => {
+    if (deleteArmed !== b.id) { deleteArmed = b.id; render(); return; }
+    deleteArmed = null;
+    if (await boardDo({ op: "deleteBounty", id: b.id })) {
+      boardBounty = null;
+      layers = layers.filter((x) => x !== "bounty");
+    }
+    render();
+  });
+  onEnter($<HTMLTextAreaElement>("#b-comment"), (text) => void boardDo({ op: "comment", id: b.id, text }));
+}
+
+keep.onBoard((b) => {
+  board = b;
+  invalidate();
+  if (boardOpen) render();
+});
+
 function render(): void {
   if (!realm) return;
   invalidate();
   const s = selected ? byId.get(selected) : null;
-  pane.classList.toggle("split", !!s && !cottageOpen && !founding);
+  pane.classList.toggle("split", (!!s && !cottageOpen && !founding) || boardOpen);
+
+  if (boardOpen) {
+    renderBoardPane();
+    return;
+  }
 
   if (cottageOpen) {
     pane.innerHTML = renderCottage();
@@ -2209,9 +2533,10 @@ window.addEventListener("keydown", (e) => {
     popLayer(layers.length - 1);
     return;
   }
-  if (e.key === "Escape" && !typingHere && (selected || cottageOpen)) {
+  if (e.key === "Escape" && !typingHere && (selected || cottageOpen || boardOpen)) {
     selected = null;
     cottageOpen = false;
+    boardOpen = false;
     render();
     return;
   }
@@ -2291,6 +2616,8 @@ document.getElementById("go-bounty")!.addEventListener("click", () => {
   // at that zoom, rounded as hexSize() rounds it.
   const p = hexToPixel(bountyHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
   flyTo(-p.x, -p.y, BOUNTY_ZOOM);
+  setBuilding(null);
+  openBoard();
 });
 
 const zoomWin = document.getElementById("zoomwin") as HTMLButtonElement;
@@ -2319,6 +2646,7 @@ keep.onFocusSettlement((id) => {
   if (!byId.has(id)) return;
   selected = id;
   cottageOpen = false;
+  boardOpen = false;
   founding = null;
   // Bring it into view: a flag you clicked from the Dock may be off screen.
   const s = byId.get(id)!;
@@ -2419,6 +2747,7 @@ window.addEventListener("resize", () => {
   select(id?: string) {
     selected = id ?? [...byId.keys()][0] ?? null;
     cottageOpen = false;
+    boardOpen = false;
     founding = null;
     render();
   },
@@ -2426,6 +2755,7 @@ window.addEventListener("resize", () => {
     selected = null;
     founding = null;
     cottageOpen = true;
+    boardOpen = false;
     void refreshBudgets();
   },
   list: () => [...byId.values()].map((s) => ({ id: s.id, name: s.name, state: s.state })),
@@ -2467,6 +2797,7 @@ window.addEventListener("resize", () => {
     document.fonts.load('21px "Kaushan Script"').catch(() => []),
   ]);
   realm = await keep.getRealm();
+  board = await keep.getBoard().catch(() => board);
   keep.models().then((m) => { models = m; render(); }).catch(() => {});
   keep.getAvatar().then((u) => { avatarUrl = u; loadAvatarImage(); }).catch(() => {});
   for (const s of realm.settlements) byId.set(s.id, s);

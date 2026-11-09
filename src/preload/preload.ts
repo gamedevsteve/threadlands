@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld("keep", {
     ipcRenderer.on("settlement", (_e, s: Settlement) => cb(s)),
   onRemoved: (cb: (id: string) => void) => ipcRenderer.on("removed", (_e, id: string) => cb(id)),
   onBudgets: (cb: (b: unknown[]) => void) => ipcRenderer.on("budgets", (_e, b: unknown[]) => cb(b)),
+  getBoard: () => ipcRenderer.invoke("getBoard"),
+  boardOp: (op: unknown) => ipcRenderer.invoke("boardOp", op),
+  onBoard: (cb: (b: unknown) => void) => ipcRenderer.on("board", (_e, b: unknown) => cb(b)),
   onFocusSettlement: (cb: (id: string) => void) =>
     ipcRenderer.on("focusSettlement", (_e, id: string) => cb(id)),
 });

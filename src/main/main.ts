@@ -8,11 +8,13 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RealmStore } from "./realm.js";
+import { BoardStore } from "./board.js";
 import { Supervisor } from "./supervisor.js";
 import { probeAccount } from "./usage.js";
 import { listModels } from "./models.js";
 import { artFor } from "../shared/types.js";
 import type {
+  BoardOp,
   AccountBudget,
   FolderChoice,
   ModelChoice,
@@ -66,6 +68,7 @@ function claudeExecutable(): string | undefined {
 let win: BrowserWindow | null = null;
 let store: RealmStore;
 let sup: Supervisor;
+let board: BoardStore;
 
 /** When each account's usage session resets, from the cottage's probe. */
 const sessionResetsAt = new Map<string, string | null>();
@@ -206,6 +209,14 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle("getRealm", () => store.toRealm());
+
+  board = new BoardStore(store.dir);
+  ipcMain.handle("getBoard", () => board.board);
+  ipcMain.handle("boardOp", async (_e, op: BoardOp) => {
+    await board.apply(op, (id) => store.settlements.get(id), (id, text) => sup.send(id, text));
+    win?.webContents.send("board", board.board);
+    return board.board;
+  });
 
   /**
    * The folder name a clone URL will produce, which is what git itself would
@@ -355,6 +366,8 @@ app.whenReady().then(() => {
   ipcMain.handle("raze", (_e, id: string) => {
     sup.razed(id);
     store.settlements.delete(id);
+    board.forgetSettlement(id);
+    win?.webContents.send("board", board.board);
     lastNotifiedState.delete(id);
     store.save();
     win?.webContents.send("removed", id);

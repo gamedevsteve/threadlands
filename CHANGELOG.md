@@ -25,8 +25,15 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   governor is retired and the next message brings it back with the new amount
   and its memory intact. A settlement that is out of budget says so instead of
   failing mid-task.
-- **The bounty board** stands due west of the cottage, level with it, greyed out
-  until it does something. A third button on the map rail flies to it.
+- **The bounty board opens.** Click it on the map, or its rail button, for
+  `Bounty board › Ledger › Bounty`. Ledgers are checklists you make by hand;
+  the board starts with one called *Mine*. Post a bounty with Enter, tick it
+  off, and open it for its notes, its assignment, which ledger it lives in, and
+  a log of comments and everything that happened to it. Assigning a bounty
+  sends it to that settlement as a message; marking it done records the branch
+  and commit in that settlement's folder. A bounty can move between ledgers and
+  keeps its assignment. Ledgers can be marked as readable by cities, ready for
+  when governors get board tools. Kept in `board.json`, beside the realm.
 - `⌘=` / `⌘-` / `⌘0` size the conversation text.
 - The hex under the pointer shows in the top bar: its coordinate and what stands on it.
 - Your own messages render markdown, Slack style: `*bold*`, `_italic_`.
