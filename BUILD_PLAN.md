@@ -556,6 +556,11 @@ Decided 2026-11-09. The side panel is a stack of layers, not a set of pages.
 Decided 2026-11-09. Your to-do list, and the realm's. It stands west of the
 cottage, level with it.
 
+**Nothing on the board starts work by itself.** Assigning a bounty records who
+it is for; telling the governor is yours to do. Every bounty has an id, `B-12`,
+never reused, so you can name it to a governor, and once governors have board
+tools they can look it up by that id.
+
 **Ledgers hold bounties.** You create both by hand. A ledger is a named
 checklist; a bounty is one item on it, and belongs to exactly one ledger.
 
@@ -582,8 +587,8 @@ board's panel the way you talk to a governor. Its world is the board.
 - You brain-dump issues at it; it proposes how to organise them, as checklist
   bounties filed into ledgers, and you accept or adjust before they are made.
 - It can create bounties, move them between ledgers and comment, on its own.
-- It asks before **assigning** (that puts a city to work and spends money) and
-  before **closing**.
+- It asks before **assigning** and before **closing**. Like you, it never sets
+  a city to work: assigning only records.
 - It runs in the realm's folder with board tools only, and no access to code.
   When it needs to know the state of a city's work, the Keep checks git in that
   folder for it and hands back the answer: branch, last commit, anything
@@ -607,7 +612,7 @@ app; the rest change how sessions start, so they are built from a terminal.
 
 1. The panel's layer stack, moving the existing details sheet onto it. ✅
 2. Ledgers and bounties by hand: `board.json`, the three layers, moves, the log.
-   Useful on its own; assigning sends the city a message. ✅
+   Useful on its own. ✅
 3. The ranger: a new kind of session, with board tools and the Keep's git check.
 4. Governor tools: read granted ledgers, report a bounty fixed to the ranger.
 5. The closing flag.

@@ -213,7 +213,7 @@ app.whenReady().then(() => {
   board = new BoardStore(store.dir);
   ipcMain.handle("getBoard", () => board.board);
   ipcMain.handle("boardOp", async (_e, op: BoardOp) => {
-    await board.apply(op, (id) => store.settlements.get(id), (id, text) => sup.send(id, text));
+    await board.apply(op, (id) => store.settlements.get(id));
     win?.webContents.send("board", board.board);
     return board.board;
   });

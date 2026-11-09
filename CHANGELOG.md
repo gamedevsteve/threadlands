@@ -29,9 +29,11 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   `Bounty board › Ledger › Bounty`. Ledgers are checklists you make by hand;
   the board starts with one called *Mine*. Post a bounty with Enter, tick it
   off, and open it for its notes, its assignment, which ledger it lives in, and
-  a log of comments and everything that happened to it. Assigning a bounty
-  sends it to that settlement as a message; marking it done records the branch
-  and commit in that settlement's folder. A bounty can move between ledgers and
+  a log of comments and everything that happened to it. Every bounty has an
+  id, `B-12`, to tell a governor about it yourself; **Copy** puts its id, title
+  and notes on the clipboard. Assigning only records who it is for: nothing is
+  sent and nothing starts. Marking it done records the branch and commit in the
+  assigned settlement's folder. A bounty can move between ledgers and
   keeps its assignment. Ledgers can be marked as readable by cities, ready for
   when governors get board tools. Kept in `board.json`, beside the realm.
 - `⌘=` / `⌘-` / `⌘0` size the conversation text.

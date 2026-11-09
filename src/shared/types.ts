@@ -246,11 +246,13 @@ export type BountyState = "open" | "assigned" | "done";
 
 export type Bounty = {
   id: string;
+  /** The number you see and say: B-12. Never reused. */
+  number: number;
   ledgerId: string;
   title: string;
   notes: string;
   state: BountyState;
-  /** The settlement working it, or null. Survives a move between ledgers. */
+  /** Who it is for, or null. Recorded only: nothing is sent. Survives a move between ledgers. */
   assignee: string | null;
   /** Read from git in the assignee's folder when the bounty is closed. */
   branch: string | null;
@@ -268,7 +270,10 @@ export type Ledger = {
   createdAt: number;
 };
 
-export type Board = { ledgers: Ledger[]; bounties: Bounty[] };
+export type Board = { ledgers: Ledger[]; bounties: Bounty[]; nextNumber: number };
+
+/** How a bounty is referred to, on screen and to a governor. */
+export const bountyRef = (b: { number: number }): string => `B-${b.number}`;
 
 /** Everything you can do to the board by hand. The Keep applies these and pushes the board back. */
 export type BoardOp =

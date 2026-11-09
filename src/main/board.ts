@@ -12,7 +12,7 @@ import type { Board, BoardOp, Bounty, Settlement } from "../shared/types.js";
 
 export class BoardStore {
   private readonly file: string;
-  board: Board = { ledgers: [], bounties: [] };
+  board: Board = { ledgers: [], bounties: [], nextNumber: 1 };
 
   constructor(dir: string) {
     this.file = join(dir, "board.json");
@@ -23,7 +23,11 @@ export class BoardStore {
     if (existsSync(this.file)) {
       try {
         const raw = JSON.parse(readFileSync(this.file, "utf8")) as Partial<Board>;
-        this.board = { ledgers: raw.ledgers ?? [], bounties: raw.bounties ?? [] };
+        this.board = { ledgers: raw.ledgers ?? [], bounties: raw.bounties ?? [], nextNumber: raw.nextNumber ?? 1 };
+        // Bounties from before numbers existed get them now, oldest first.
+        const unnumbered = this.board.bounties.filter((b) => !b.number).sort((a, b) => a.createdAt - b.createdAt);
+        for (const b of unnumbered) b.number = this.board.nextNumber++;
+        if (unnumbered.length) this.save();
       } catch (e) {
         // A board that will not parse is kept aside rather than overwritten.
         console.error(`[board] could not read board.json, starting fresh: ${e}`);
@@ -63,13 +67,9 @@ export class BoardStore {
 
   /**
    * Apply one change. Throws with a reason fit to show if it cannot be done.
-   * `settlement` looks up a settlement; `tell` sends one a message.
+   * Nothing here ever messages a settlement: you do that yourself, by its id.
    */
-  async apply(
-    op: BoardOp,
-    settlement: (id: string) => Settlement | undefined,
-    tell: (id: string, text: string) => Promise<void>,
-  ): Promise<void> {
+  async apply(op: BoardOp, settlement: (id: string) => Settlement | undefined): Promise<void> {
     const b = this.board;
     const ledger = (id: string) => {
       const l = b.ledgers.find((x) => x.id === id);
@@ -109,7 +109,7 @@ export class BoardStore {
       case "addBounty": {
         ledger(op.ledgerId);
         const x: Bounty = {
-          id: randomUUID(), ledgerId: op.ledgerId, title: clean(op.title, "bounty"), notes: "",
+          id: randomUUID(), number: b.nextNumber++, ledgerId: op.ledgerId, title: clean(op.title, "bounty"), notes: "",
           state: "open", assignee: null, branch: null, commit: null, log: [],
           createdAt: Date.now(), doneAt: null,
         };
@@ -144,16 +144,6 @@ export class BoardStore {
         }
         const s = settlement(op.settlementId);
         if (!s) throw new Error("That settlement is gone.");
-        // Told first: if the message cannot be sent, nothing on the board changes.
-        const brief = [
-          `A bounty from the board, ledger "${ledger(x.ledgerId).name}":`,
-          ``,
-          `**${x.title}**`,
-          ...(x.notes.trim() ? ["", x.notes.trim()] : []),
-          ``,
-          `Work on it here. When it is done, say so, and say whether it is committed and pushed.`,
-        ].join("\n");
-        await tell(s.id, brief);
         x.assignee = s.id;
         if (x.state === "open") x.state = "assigned";
         note(x, `Assigned to ${s.name}.`);

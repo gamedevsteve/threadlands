@@ -19,6 +19,7 @@ import type {
   SettlementKind,
 } from "../shared/types.js";
 import type { Board, BoardOp, Bounty, Ledger } from "../shared/types.js";
+import { bountyRef } from "../shared/types.js";
 
 type Keep = {
   getRealm(): Promise<Realm>;
@@ -194,7 +195,7 @@ const LAYER_LABELS: Record<string, string> = { details: "Details" };
 let entering: string | null = null;
 
 let boardOpen = false;
-let board: Board = { ledgers: [], bounties: [] };
+let board: Board = { ledgers: [], bounties: [], nextNumber: 1 };
 let boardLedger: string | null = null;
 let boardBounty: string | null = null;
 let boardFilter: "open" | "done" | "all" = "open";
@@ -294,7 +295,10 @@ function crumbs(root: string, rootClass: string, status: string): string {
 
 function layerLabel(id: string): string {
   if (id === "ledger") return board.ledgers.find((l) => l.id === boardLedger)?.name ?? "Ledger";
-  if (id === "bounty") return board.bounties.find((b) => b.id === boardBounty)?.title ?? "Bounty";
+  if (id === "bounty") {
+    const b = board.bounties.find((x) => x.id === boardBounty);
+    return b ? `${bountyRef(b)} ${b.title}` : "Bounty";
+  }
   return LAYER_LABELS[id] ?? id;
 }
 
@@ -1937,6 +1941,7 @@ function renderLedger(l: Ledger | undefined): string {
   const items = shown
     .map((b) => `<li class="bountyrow ${b.state}">
         <input type="checkbox" data-done="${esc(b.id)}" ${b.state === "done" ? "checked" : ""} title="${b.state === "done" ? "Open again" : "Mark done"}" />
+        <span class="bid">${bountyRef(b)}</span>
         <button class="btitle" data-bounty="${esc(b.id)}">${esc(b.title)}</button>
         ${b.assignee ? `<span class="muted who">${esc(settlementName(b.assignee))}</span>` : ""}
       </li>`)
@@ -1979,7 +1984,11 @@ function renderBounty(b: Bounty | undefined): string {
     .map((l) => `<option value="${esc(l.id)}" ${b.ledgerId === l.id ? "selected" : ""}>${esc(l.name)}</option>`)
     .join("");
   const stateWord = b.state === "done" ? "Done" : b.state === "assigned" ? "Assigned" : "Open";
-  return `<label>Bounty</label>
+  return `<div class="bidrow">
+      <span class="bid big">${bountyRef(b)}</span>
+      <button id="b-copy" title="Copy its id, title and notes, to hand to a governor">Copy</button>
+    </div>
+    <label>Bounty</label>
     <input id="b-title" maxlength="200" value="${esc(b.title)}" />
     <label>Notes</label>
     <textarea id="b-notes" rows="4" placeholder="What it is, where to look, how to know it is done.">${esc(b.notes)}</textarea>
@@ -1989,7 +1998,7 @@ function renderBounty(b: Bounty | undefined): string {
 
     <label>Assigned to</label>
     <select id="b-assign">${assignOpts}</select>
-    <p class="muted hint">Assigning sends the bounty to that settlement as a message, and it starts work.</p>
+    <p class="muted hint">Only recorded: nothing is sent. Tell the governor yourself, by ${bountyRef(b)}.</p>
 
     <label>Ledger</label>
     <select id="b-move">${ledgerOpts}</select>
@@ -2119,7 +2128,7 @@ function bindBoard(): void {
   $<HTMLSelectElement>("#b-assign")?.addEventListener("change", async (e) => {
     const v = (e.target as HTMLSelectElement).value || null;
     if (await boardDo({ op: "assign", id: b.id, settlementId: v })) {
-      toast(v ? `Sent to ${settlementName(v)}` : "Unassigned");
+      toast(v ? `${bountyRef(b)} is for ${settlementName(v)}` : "Unassigned");
     }
     render();
   });
@@ -2131,6 +2140,16 @@ function bindBoard(): void {
       toast(`Moved to ${board.ledgers.find((x) => x.id === to)?.name ?? "another ledger"}`);
     }
     render();
+  });
+  // Your click, so your clipboard: this is the only way anything leaves the board.
+  $<HTMLButtonElement>("#b-copy")?.addEventListener("click", async () => {
+    const text = [`${bountyRef(b)}: ${b.title}`, ...(b.notes.trim() ? ["", b.notes.trim()] : [])].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`${bountyRef(b)} copied`);
+    } catch {
+      toast("Couldn't reach the clipboard");
+    }
   });
   $<HTMLButtonElement>("#b-done")?.addEventListener("click", () =>
     void boardDo({ op: "setDone", id: b.id, done: b.state !== "done" }));
