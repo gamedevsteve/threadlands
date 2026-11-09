@@ -178,7 +178,14 @@ function loadAvatarImage(): void {
 /** Which collapsed runs of tool work have been opened, by settlement and index. */
 const expandedRuns = new Set<string>();
 /** Whether the details sheet is slid out over the transcript. */
-let detailsOpen = false;
+/**
+ * The panel's layers, above whatever the panel is open on. Each id is a sheet
+ * that slides in over the one beneath; the header is a breadcrumb of them.
+ * Clicking something on the map starts a fresh stack. See BUILD_PLAN, "The
+ * panel's layers".
+ */
+let layers: string[] = [];
+const LAYER_LABELS: Record<string, string> = { details: "Details" };
 let razeArmed: string | null = null;
 let razeTyped = "";
 
@@ -253,6 +260,68 @@ yourMarkdown.use({
     },
   },
 });
+
+/**
+ * The breadcrumb: the thing the panel is open on, then each layer above it.
+ * Every crumb but the last is a button back to that depth. The root carries a
+ * line of status, shown only when nothing is stacked on it.
+ */
+function crumbs(root: string, rootClass: string, status: string): string {
+  const parts = [
+    `<button class="crumb${layers.length ? "" : " current"}" data-depth="0"><b class="${rootClass}">${esc(root)}</b></button>`,
+  ];
+  layers.forEach((id, i) => {
+    const last = i === layers.length - 1;
+    parts.push(`<span class="sep">›</span><button class="crumb${last ? " current" : ""}" data-depth="${i + 1}">${esc(LAYER_LABELS[id] ?? id)}</button>`);
+  });
+  if (!layers.length) parts.push(`<span class="muted">${esc(status)}</span>`);
+  return parts.join("");
+}
+
+function bindCrumbs(): void {
+  pane.querySelectorAll<HTMLButtonElement>("#crumbs .crumb:not(.current)").forEach((b) => {
+    b.addEventListener("click", () => popLayer(Number(b.dataset.depth)));
+  });
+}
+
+/**
+ * Change the stack in place rather than re-rendering. A re-render builds each
+ * sheet in its final position, so the browser has nothing to animate from and
+ * it simply appears; toggling the class on the sheet already there slides it.
+ */
+function syncLayers(): void {
+  pane.querySelectorAll<HTMLElement>(".layer[data-layer]").forEach((el) => {
+    el.classList.toggle("open", layers.includes(el.dataset.layer!));
+  });
+  const btn = pane.querySelector<HTMLElement>("#details-toggle");
+  const detailsOpen = layers.includes("details");
+  btn?.classList.toggle("on", detailsOpen);
+  btn?.setAttribute("aria-expanded", String(detailsOpen));
+  btn?.setAttribute("title", detailsOpen ? "Hide details" : "Show details");
+  const nav = pane.querySelector<HTMLElement>("#crumbs");
+  const s = selected ? byId.get(selected) : null;
+  if (nav && s) {
+    nav.innerHTML = crumbs(s.name, s.state === "dormant" ? "muted" : "", `${s.kind} · ${stateWordOf(s)}`);
+    bindCrumbs();
+  }
+}
+
+function stateWordOf(s: Settlement): string {
+  return { idle: "idle", working: "working", needs_you: "needs you", dormant: "dormant · will resume", error: "error" }[s.state];
+}
+
+function pushLayer(id: string): void {
+  if (layers.includes(id)) return;
+  layers.push(id);
+  syncLayers();
+}
+
+/** Drop back to `depth` layers: 0 is the thing itself. */
+function popLayer(depth: number): void {
+  if (depth >= layers.length) return;
+  layers = layers.slice(0, depth);
+  syncLayers();
+}
 
 /** The ceiling field, and how much of it this account session has used. */
 function renderBudget(s: Settlement): string {
@@ -1339,7 +1408,7 @@ window.addEventListener("keydown", (e) => {
 function clickHex(h: { q: number; r: number }): void {
   razeArmed = null;
   razeTyped = "";
-  detailsOpen = false;
+  layers = [];
   // Only empty ground places what is in hand. Clicking anything else is not a
   // placement, so the tool goes down rather than following you around the map
   // with no way left on screen to say how to stop it.
@@ -1677,7 +1746,7 @@ function runSummary(entries: Settlement["chat"][number][]): string {
 }
 
 function renderSettlement(s: Settlement): string {
-  const stateWord = { idle: "idle", working: "working", needs_you: "needs you", dormant: "dormant · will resume", error: "error" }[s.state];
+  const stateWord = stateWordOf(s);
   const tk = s.tokens;
   const total = tk.input + tk.output;
   const flag = s.flag
@@ -1720,11 +1789,9 @@ function renderSettlement(s: Settlement): string {
   // the info button, in a sheet that slides over the transcript — the details
   // are worth a glance now and then, the conversation is worth the room.
   const tint = s.state === "dormant" ? "muted" : "";
+  const detailsOpen = layers.includes("details");
   return `<div class="shead">
-      <div class="who">
-        <b class="${tint}">${esc(s.name)}</b>
-        <span class="muted">${esc(s.kind)} · ${esc(stateWord)}</span>
-      </div>
+      <nav class="who crumbs" id="crumbs">${crumbs(s.name, tint, `${s.kind} · ${stateWord}`)}</nav>
       <button class="infobtn${detailsOpen ? " on" : ""}" id="details-toggle"
         title="${detailsOpen ? "Hide details" : "Show details"}" aria-expanded="${detailsOpen}">
         <img src="./assets/info.png" alt="Details" />
@@ -1732,7 +1799,7 @@ function renderSettlement(s: Settlement): string {
     </div>
     ${flag}
     <div class="chatwrap">
-      <div class="details${detailsOpen ? " open" : ""}" id="details">
+      <div class="layer details${detailsOpen ? " open" : ""}" id="details" data-layer="details">
         <div class="kv"><span class="k">Folder</span><span class="v mono">${esc(s.cwd)}</span></div>
         <div class="kv"><span class="k">Account</span><span class="v mono">${esc(s.profileId)}</span></div>
         <div class="kv"><span class="k">Tokens</span><span class="v mono">${total.toLocaleString()}</span></div>
@@ -1956,17 +2023,10 @@ function render(): void {
   composer.classList.remove("hidden");
   hint.textContent = s.name;
   pane.querySelector("#details-toggle")?.addEventListener("click", () => {
-    detailsOpen = !detailsOpen;
-    // Toggle the class on the element that is already on screen rather than
-    // re-rendering. A re-render builds the sheet in its final position, so the
-    // browser has no previous value to animate from and it simply appears.
-    const sheet = pane.querySelector<HTMLElement>("#details");
-    const btn = pane.querySelector<HTMLElement>("#details-toggle");
-    sheet?.classList.toggle("open", detailsOpen);
-    btn?.classList.toggle("on", detailsOpen);
-    btn?.setAttribute("aria-expanded", String(detailsOpen));
-    btn?.setAttribute("title", detailsOpen ? "Hide details" : "Show details");
+    if (layers.includes("details")) popLayer(layers.indexOf("details"));
+    else pushLayer("details");
   });
+  bindCrumbs();
 
   pane.querySelectorAll<HTMLButtonElement>(".runtoggle").forEach((b) => {
     b.addEventListener("click", () => {
@@ -2136,13 +2196,23 @@ window.addEventListener("keydown", (e) => {
     render();
     return;
   }
-  if (e.key === "Escape" && detailsOpen) {
-    detailsOpen = false;
-    const sheet = pane.querySelector<HTMLElement>("#details");
-    const btn = pane.querySelector<HTMLElement>("#details-toggle");
-    sheet?.classList.remove("open");
-    btn?.classList.remove("on");
-    btn?.setAttribute("aria-expanded", "false");
+  // Escape goes back one layer, and at the top closes the panel. Not while
+  // typing, where Escape is the text box's, and a closed panel would leave
+  // a half-written message stranded.
+  const typingHere = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? "");
+  if (e.key === "Escape" && layers.length) {
+    popLayer(layers.length - 1);
+    return;
+  }
+  if (e.key === "[" && (e.metaKey || e.ctrlKey) && layers.length) {
+    e.preventDefault();
+    popLayer(layers.length - 1);
+    return;
+  }
+  if (e.key === "Escape" && !typingHere && (selected || cottageOpen)) {
+    selected = null;
+    cottageOpen = false;
+    render();
     return;
   }
   if (e.key === "Tab" && e.shiftKey && selected) {

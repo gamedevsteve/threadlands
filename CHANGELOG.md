@@ -13,6 +13,11 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **The panel has layers.** A settlement's details now slide in as a layer
+  over its conversation, and the panel's header is a breadcrumb,
+  `Threadlands › Details`, with each earlier crumb a way back. Escape or `⌘[`
+  goes back one layer; with none left, Escape closes the panel. Clicking
+  something on the map starts afresh. The bounty board will build on this.
 - **A budget ceiling per settlement**, in its details sheet, over the realm
   default. It caps what the settlement spends within your account's current
   usage session (the cottage's Session meter), and starts again when that

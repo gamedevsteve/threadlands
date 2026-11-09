@@ -160,6 +160,12 @@ to "Realm default" follows the cottage, including while it is running.
 
 ### The panel
 
+The panel is a stack of layers. Clicking into something slides a sheet in over
+what was there, and the header becomes a breadcrumb back through them. Escape
+or `⌘[` goes back one; at the top, Escape closes the panel (unless you are
+typing). A new layer is an id in `LAYER_LABELS` and an element with
+`class="layer"` and a matching `data-layer`.
+
 The side panel is `assets/parchment.webp`. Everything inside it reads its
 colours from CSS custom properties, so the whole panel is reskinned by
 redefining those tokens on `aside` rather than by touching each rule — swap the
