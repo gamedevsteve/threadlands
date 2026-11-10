@@ -423,7 +423,7 @@
   .addrow input { width: 100%; box-sizing: border-box; }
   .checklist { list-style: none; margin: 8px 0 4px; padding: 0; }
   .bountyrow { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(94, 72, 38, .16); }
-  .bountyrow input { flex: none; margin: 0; transform: translateY(2px); accent-color: var(--accent); }
+  .bountyrow input { flex: none; width: auto; margin: 0; padding: 0; transform: translateY(2px); accent-color: var(--accent); }
   aside .bountyrow .btitle {
     flex: 1; min-width: 0; border: 0; background: none; padding: 0; text-align: left;
     font: inherit; color: var(--ink); cursor: pointer; overflow-wrap: anywhere;
@@ -479,7 +479,9 @@
   button:disabled { opacity: .45; cursor: default; }
   .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
 
-  input, select, textarea {
+  /* Text fields only: a checkbox or radio given width: 100% fills its row and
+     squeezes whatever sits beside it down to nothing. */
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
     background: #101b21; color: var(--ink);
     border: 1px solid var(--edge); border-radius: 6px;
     padding: 7px 9px; font: inherit; width: 100%;
