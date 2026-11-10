@@ -2580,6 +2580,9 @@ function render(): void {
     pane.querySelectorAll<HTMLButtonElement>("[data-goto]").forEach((b) =>
       b.addEventListener("click", () => goToSettlement(b.dataset.goto!)),
     );
+    pane.querySelectorAll<HTMLButtonElement>("[data-realm]").forEach((b) =>
+      b.addEventListener("click", () => REALM_BUILDINGS.find((x) => x.id === b.dataset.realm)?.go?.()),
+    );
     composer.classList.add("hidden");
     hint.textContent = `${byId.size} settlement${byId.size === 1 ? "" : "s"}`;
     return;
@@ -2919,7 +2922,7 @@ keep.onSettlement((s) => {
  */
 function renderSettlementList(): string {
   if (!byId.size) {
-    return `<div class="empty"><p>No settlements yet. Pick a house from the build tool, then click empty ground to raise it.</p></div>`;
+    return `<div class="empty"><p>No settlements yet. Pick a house from the build tool, then click empty ground to raise it.</p></div>${renderRealmList()}`;
   }
   const rank = (x: Settlement) => (x.state === "needs_you" ? 0 : x.state === "working" ? 1 : x.state === "error" ? 2 : 3);
   const rows = [...byId.values()]
@@ -2930,7 +2933,69 @@ function renderSettlementList(): string {
         <span class="muted">${esc(x.kind)} · ${esc(x.state === "needs_you" ? "needs you" : x.state)}</span>
       </button>`)
     .join("");
-  return `<h2>Settlements</h2><div class="setlist">${rows}</div>`;
+  return `<h2>Settlements</h2><div class="setlist">${rows}</div>${renderRealmList()}`;
+}
+
+/**
+ * The realm's own buildings: not sessions, but the shared parts of the realm.
+ * Planned ones are listed greyed out, so the list says what is coming. A new
+ * building is one entry here.
+ */
+type RealmBuilding = { id: string; name: string; sprite: string; sub: () => string; go?: () => void };
+const REALM_BUILDINGS: RealmBuilding[] = [
+  {
+    id: "cottage",
+    name: "The cottage",
+    sprite: "cottage",
+    sub: () => `${realm.defaults.cottageName || "you"} · settings and accounts`,
+    go: goToCottage,
+  },
+  {
+    id: "board",
+    name: "The bounty board",
+    sprite: "bounty-board",
+    sub: () => {
+      const open = board.bounties.filter((b) => b.state !== "done").length;
+      const w = board.warden.state;
+      const warden = w === "needs_you" ? "the warden needs you" : w === "working" ? "the warden is working" : "";
+      return [`${open} open`, warden].filter(Boolean).join(" · ");
+    },
+    go: goToBoard,
+  },
+  { id: "guildhall", name: "The Guildhall", sprite: "", sub: () => "planned · rules and tools" },
+];
+
+function renderRealmList(): string {
+  const rows = REALM_BUILDINGS.map((b) => {
+    const art = b.sprite
+      ? `<img class="bthumb" src="./assets/${b.sprite}.png" alt="" />`
+      : `<span class="bthumb"></span>`;
+    const flag = b.id === "board" && board.warden.state === "needs_you" ? " needs_you" : "";
+    return b.go
+      ? `<button class="setrow building${flag}" data-realm="${b.id}">${art}<span class="sname">${esc(b.name)}</span><span class="muted">${esc(b.sub())}</span></button>`
+      : `<div class="setrow building planned">${art}<span class="sname">${esc(b.name)}</span><span class="muted">${esc(b.sub())}</span></div>`;
+  }).join("");
+  return `<h2 class="realmhead">The realm</h2><div class="setlist">${rows}</div>`;
+}
+
+function goToCottage(): void {
+  selected = null;
+  founding = null;
+  boardOpen = false;
+  cottageOpen = true;
+  layers = [];
+  setBuilding(null);
+  const p = hexToPixel(realm.cottageHex, Math.round(74 * FOCUS_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, FOCUS_ZOOM);
+  void refreshBudgets();
+  render();
+}
+
+function goToBoard(): void {
+  const p = hexToPixel(bountyHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, BOUNTY_ZOOM);
+  setBuilding(null);
+  openBoard();
 }
 
 /** Zoom the map in on a settlement and open its conversation. */

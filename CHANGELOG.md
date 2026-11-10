@@ -17,6 +17,9 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   how-to text: the ones that need you first, then the ones at work, then the
   rest by when they were last active, each with a dot for its state. Click one
   and the map glides in on it and its conversation opens.
+  Under them, **the realm**: the cottage and the bounty board (with its open
+  count, and when the warden needs you), each opening on a click, and planned
+  buildings greyed out — the Guildhall, for now.
 - **A governor can read the board.** Every settlement is spawned with the
   board's own tools: the ledgers granted to it, the bounties in them, and one
   bounty in full by the id you say out loud — `B-12`. Anything assigned to a
