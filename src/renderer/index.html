@@ -480,8 +480,9 @@
   .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
 
   /* Text fields only: a checkbox or radio given width: 100% fills its row and
-     squeezes whatever sits beside it down to nothing. */
-  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+     squeezes whatever sits beside it down to nothing. :where() keeps this at
+     the weight of a bare "input", so the panel's own "aside input" still wins. */
+  input:where(:not([type="checkbox"]):not([type="radio"])), select, textarea {
     background: #101b21; color: var(--ink);
     border: 1px solid var(--edge); border-radius: 6px;
     padding: 7px 9px; font: inherit; width: 100%;
