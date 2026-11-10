@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 import zlib
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "assets"
@@ -52,7 +52,12 @@ JOBS = [
     ("post-office", "post-office", 512, True),
     # Figures, like your avatar: they stand beside a building rather than on a hex.
     ("warden", "warden", 512, False),
+    ("rookery", "rookery", 512, True),
 ]
+
+# Art exported with a transparency checkerboard painted into it rather than real
+# alpha. Keyed by key_checkerboard instead of key_background.
+CHECKERED = {"rookery"}
 
 # Animation sheets: (source stem, output name, columns, rows, frame width, mirror)
 #
@@ -85,6 +90,65 @@ TOLERANCE = 62
 # Pixels of alpha ramp at the edge. Keep at 0: the LANCZOS downscale already
 # antialiases the alpha, and a hard ring here haloes where tiles overlap.
 FEATHER = 0
+
+
+def key_checkerboard(img: Image.Image) -> Image.Image:
+    """
+    Clear a painted transparency checkerboard: bright, perfectly grey pixels
+    reachable from the border. Grey only, and tightly: lit art is never quite
+    neutral, so white details touching the edge (birds, highlights) survive
+    where a plain colour key would eat them.
+    """
+    img = img.convert("RGBA")
+    w, h = img.size
+    px = img.load()
+
+    def is_bg(p):
+        r, g, b = p[0], p[1], p[2]
+        return min(r, g, b) >= 222 and max(r, g, b) - min(r, g, b) <= 2
+
+    seen = bytearray(w * h)
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if is_bg(px[x, y]):
+                seen[y * w + x] = 1
+                q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if not seen[y * w + x] and is_bg(px[x, y]):
+                seen[y * w + x] = 1
+                q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        px[x, y] = (px[x, y][0], px[x, y][1], px[x, y][2], 0)
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < w and 0 <= ny < h and not seen[ny * w + nx] and is_bg(px[nx, ny]):
+                seen[ny * w + nx] = 1
+                q.append((nx, ny))
+    # Pockets the border cannot reach: the gap under a sign's arm, a window
+    # through to the sky. Any enclosed run of checker big enough not to be a
+    # highlight goes too.
+    for sy in range(h):
+        for sx in range(w):
+            if seen[sy * w + sx] or not is_bg(px[sx, sy]):
+                continue
+            seen[sy * w + sx] = 1
+            comp, q = [], deque([(sx, sy)])
+            while q:
+                x, y = q.popleft()
+                comp.append((x, y))
+                for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                    if 0 <= nx < w and 0 <= ny < h and not seen[ny * w + nx] and is_bg(px[nx, ny]):
+                        seen[ny * w + nx] = 1
+                        q.append((nx, ny))
+            if len(comp) >= 400:
+                for x, y in comp:
+                    px[x, y] = (px[x, y][0], px[x, y][1], px[x, y][2], 0)
+    # A one-pixel soft edge, so the outline does not stair-step.
+    a = img.getchannel("A").filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.8))
+    img.putalpha(ImageChops.multiply(img.getchannel("A"), a.point(lambda v: min(255, v * 2))))
+    return img
 
 
 def key_background(img: Image.Image) -> Image.Image:
@@ -792,6 +856,8 @@ def prepare_sprites(jobs=None) -> None:
         if img.mode in ("RGBA", "LA") and img.getchannel("A").getextrema()[0] < 250:
             img = img.convert("RGBA")
             print(f"  {stem}.png has its own alpha — keying skipped")
+        elif stem in CHECKERED:
+            img = key_checkerboard(img)
         else:
             img = key_background(img)
         box = img.getbbox()          # crop to the art, so hex math has no margin to fight

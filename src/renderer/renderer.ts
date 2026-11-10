@@ -70,6 +70,18 @@ const MAP_RADIUS = 14;        // rings of hexes from the cottage
  * Not built yet, so it stands greyed out and nothing can be raised on it.
  */
 const BOUNTY_OFFSET = { q: -6, r: 3 };
+/**
+ * The rookery, where messengers will fly from: two rings out, down and to the
+ * right of the cottage. Not working yet; it stands, and says so.
+ */
+const ROOKERY_OFFSET = { q: 2, r: 4 };
+function rookeryHex(): { q: number; r: number } {
+  return { q: realm.cottageHex.q + ROOKERY_OFFSET.q, r: realm.cottageHex.r + ROOKERY_OFFSET.r };
+}
+/** Hexes the realm's own buildings stand on. Nothing can be founded or moved there. */
+function isRealmHex(h: { q: number; r: number }): boolean {
+  return hexEq(h, realm.cottageHex) || hexEq(h, bountyHex()) || hexEq(h, rookeryHex());
+}
 function bountyHex(): { q: number; r: number } {
   return { q: realm.cottageHex.q + BOUNTY_OFFSET.q, r: realm.cottageHex.r + BOUNTY_OFFSET.r };
 }
@@ -1064,7 +1076,7 @@ function draw(): void {
   const outlined = carrying ? null : (founding ?? hover);
   const taken =
     !!outlined &&
-    (occupied.has(`${outlined.q},${outlined.r}`) || hexEq(outlined, realm.cottageHex) || hexEq(outlined, bountyHex()));
+    (occupied.has(`${outlined.q},${outlined.r}`) || isRealmHex(outlined));
   // An occupied tile says so by making its building glow, so a hex is only ever
   // drawn over bare ground — never on top of the art.
   if (outlined && !taken) {
@@ -1140,6 +1152,18 @@ function draw(): void {
       const open = board.bounties.filter((b) => b.state !== "done").length;
       const tint = warden === "needs_you" ? "#ffb08a" : "#f0dcae";
       plates.push(() => nameplate(open ? `Bounties · ${open}` : "Bounties", x, foot, tint, "#3a2a12"));
+    }
+  }
+
+  // The rookery. Drawn as it is, but not open yet: its plate says so.
+  {
+    const p = hexToPixel(rookeryHex(), size);
+    const { x, y } = worldToScreen(p.x, p.y);
+    const hovered = !!hover && hexEq(hover, rookeryHex());
+    drawSprite("rookery", x, y, size, false, hovered ? [{ colour: "rgba(240,246,248,.85)", blur: size * 0.14, passes: 2 }] : []);
+    if (camera.zoom >= BANNER_ALL_BELOW || hovered) {
+      const foot = spriteFoot("rookery", y, size);
+      plates.push(() => nameplate("Rookery · soon", x, foot, "#d8d4cc", "#4a463e"));
     }
   }
 
@@ -1322,7 +1346,7 @@ function settlementAt(h: { q: number; r: number }): Settlement | undefined {
 function canLandOn(h: { q: number; r: number }, movingId: string): boolean {
   if (hexDistance(h, { q: 0, r: 0 }) > MAP_RADIUS) return false;
   if (hexEq(h, realm.cottageHex)) return false;
-  if (hexEq(h, bountyHex())) return false;
+  if (isRealmHex(h)) return false;
   const there = settlementAt(h);
   return !there || there.id === movingId;
 }
@@ -1352,7 +1376,9 @@ function showCoord(h: { q: number; r: number } | null): void {
     ? realm.defaults.cottageName || "the cottage"
     : hexEq(h, bountyHex())
       ? "bounty board"
-      : settlementAt(h)?.name ?? "";
+      : hexEq(h, rookeryHex())
+        ? "rookery"
+        : settlementAt(h)?.name ?? "";
   coordEl.textContent = `q ${num(h.q)} · r ${num(h.r)}${what ? `  ·  ${what}` : ""}`;
 }
 
@@ -1530,6 +1556,12 @@ function clickHex(h: { q: number; r: number }): void {
   if (hexEq(h, bountyHex())) {
     setBuilding(null);
     openBoard();
+    return;
+  }
+  if (hexEq(h, rookeryHex())) {
+    setBuilding(null);
+    toast("The rookery isn't open yet. Messengers will fly from here.");
+    render();
     return;
   }
   if (hexEq(h, realm.cottageHex)) {
@@ -2962,6 +2994,7 @@ const REALM_BUILDINGS: RealmBuilding[] = [
     },
     go: goToBoard,
   },
+  { id: "rookery", name: "The rookery", sprite: "rookery", sub: () => "planned · messengers" },
   { id: "guildhall", name: "The Guildhall", sprite: "", sub: () => "planned · rules and tools" },
 ];
 
@@ -3175,6 +3208,7 @@ window.addEventListener("resize", () => {
       "cottage",
       "bounty-board",
       "warden",
+      "rookery",
       "banner",
       "flag-pole",
       ...Array.from({ length: FLAG_FRAMES }, (_, i) => `flag-${i}`),
