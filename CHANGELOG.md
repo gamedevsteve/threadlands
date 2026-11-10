@@ -13,6 +13,9 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **The warden stands at his board**, at its right-hand side, the way you stand
+  by the cottage: fixed to it, with a shadow, at every zoom. Your avatar and he
+  share the same drawing code now.
 - **The panel has layers.** A settlement's details now slide in as a layer
   over its conversation, and the panel's header is a breadcrumb,
   `Threadlands › Details`, with each earlier crumb a way back. Escape or `⌘[`

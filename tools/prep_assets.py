@@ -50,6 +50,8 @@ JOBS = [
     ("bounty-board", "bounty-board", 512, True),
     ("library", "library", 512, True),
     ("post-office", "post-office", 512, True),
+    # Figures, like your avatar: they stand beside a building rather than on a hex.
+    ("warden", "warden", 512, False),
 ]
 
 # Animation sheets: (source stem, output name, columns, rows, frame width, mirror)
@@ -763,7 +765,22 @@ def prepare_sheets() -> None:
 
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
+    prepare_sprites()
+    prepare_sheets()
+    prepare_pole()
+    prepare_ground()
+    prepare_banner()
+    prepare_parchment()
+    prepare_icon()
+    prepare_ui_icons()
+    return 0
+
+
+def prepare_sprites(jobs=None) -> None:
+    """Every single sprite in JOBS, or just the ones whose stem is listed."""
     for stem, name, width, mirror in JOBS:
+        if jobs and stem not in jobs:
+            continue
         src = SRC / f"{stem}.png"
         if not src.exists():
             print(f"  !! missing {src}")
@@ -790,14 +807,6 @@ def main() -> int:
         img.save(dst, optimize=True)
         flipped = " · mirrored" if mirror else ""
         print(f"  {stem}.png -> {dst.name}  {width}x{height}  ratio {img.width / img.height:.4f}{flipped}")
-    prepare_sheets()
-    prepare_pole()
-    prepare_ground()
-    prepare_banner()
-    prepare_parchment()
-    prepare_icon()
-    prepare_ui_icons()
-    return 0
 
 
 if __name__ == "__main__":

@@ -978,6 +978,33 @@ function spriteFoot(name: string, cy: number, size: number): number {
   return cy + h / 2 - size * 0.08;
 }
 
+/**
+ * A standing figure beside a building: a soft shadow on the ground under its
+ * feet, then the figure. `box` is the part of the image that is the figure;
+ * `cx` and `feet` are where its centre and its soles land on screen. `lean`
+ * shifts the shadow by that fraction of the figure's width.
+ */
+function drawFigure(
+  img: CanvasImageSource,
+  box: { x: number; y: number; w: number; h: number },
+  cx: number,
+  feet: number,
+  h: number,
+  lean: number,
+): void {
+  const w = h * (box.w / box.h);
+  ctx.save();
+  ctx.globalAlpha = 0.32;
+  ctx.fillStyle = "#000";
+  ctx.filter = `blur(${Math.max(1, w * 0.06)}px)`;
+  ctx.beginPath();
+  // An ellipse the width of the figure, flat on the ground under its feet.
+  ctx.ellipse(cx + w * lean, feet - h * 0.05, w * 0.42, Math.max(1.5, w * 0.14), 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.drawImage(img, box.x, box.y, box.w, box.h, cx - w / 2, feet - h, w, h);
+}
+
 function nameplate(
   text: string,
   cx: number,
@@ -1091,6 +1118,23 @@ function draw(): void {
     // The warden's flag, on the board it keeps. Behind the board itself.
     drawFlagPole(warden, "bounty-board", x, y, size, t);
     drawSprite("bounty-board", x, y, size, false, glow);
+    // The warden himself, standing at the board's right-hand side, the way you
+    // stand by the cottage: fixed to it in world units, so he keeps his place
+    // at every zoom. The pole is on the left, so the two never overlap.
+    const wardenImg = sprites["warden"];
+    if (wardenImg) {
+      const h = size * 1.05;
+      const w = h * (wardenImg.naturalWidth / wardenImg.naturalHeight);
+      const boardFoot = spriteFoot("bounty-board", y, size);
+      drawFigure(
+        wardenImg,
+        { x: 0, y: 0, w: wardenImg.naturalWidth, h: wardenImg.naturalHeight },
+        x + size * SPRITE_FRACTION + w * 0.3,
+        boardFoot - size * 0.3,
+        h,
+        0,
+      );
+    }
     if (camera.zoom >= BANNER_ALL_BELOW || boardOpen || hovered || warden === "needs_you") {
       const foot = spriteFoot("bounty-board", y, size);
       const open = board.bounties.filter((b) => b.state !== "done").length;
@@ -1121,26 +1165,9 @@ function draw(): void {
       const w = h * (avatarBox.w / avatarBox.h);
       // Fixed to the cottage, just off its left edge, in the same world units
       // as the building — so he keeps his place beside it at every zoom. The
-      // name plate passes over him; it is drawn later.
-      const ax = x - size * SPRITE_FRACTION - w * 0.45;
-      const feet = foot - size * 0.36;
-
-      ctx.save();
-      ctx.globalAlpha = 0.32;
-      ctx.fillStyle = "#000";
-      ctx.filter = `blur(${Math.max(1, w * 0.06)}px)`;
-      ctx.beginPath();
-      // An ellipse the width of the figure, flat on the ground under its feet.
-      // Nudged right of his centre: he stands with his weight off to one side.
-      ctx.ellipse(ax + w * 0.09, feet - h * 0.05, w * 0.42, Math.max(1.5, w * 0.14), 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      ctx.drawImage(
-        avatarImg,
-        avatarBox.x, avatarBox.y, avatarBox.w, avatarBox.h,
-        ax - w / 2, feet - h, w, h,
-      );
+      // name plate passes over him; it is drawn later. Shadow nudged right:
+      // he stands with his weight off to one side.
+      drawFigure(avatarImg, avatarBox, x - size * SPRITE_FRACTION - w * 0.45, foot - size * 0.36, h, 0.09);
     }
 
     if (camera.zoom >= BANNER_ALL_BELOW || cottageOpen || hoveredCottage) {
@@ -3020,6 +3047,7 @@ window.addEventListener("resize", () => {
       ...SETTLEMENT_ART.map((a) => a.value),
       "cottage",
       "bounty-board",
+      "warden",
       "banner",
       "flag-pole",
       ...Array.from({ length: FLAG_FRAMES }, (_, i) => `flag-${i}`),
