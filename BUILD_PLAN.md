@@ -617,6 +617,41 @@ app; the rest change how sessions start, so they are built from a terminal.
 4. Governor tools: read granted ledgers, report a bounty fixed to the ranger.
 5. The closing flag.
 
+### The Guildhall
+
+Decided 2026-11-09, not built. Where the realm's laws and kit can be seen: every
+directive a governor works under, and every tool it has, in one building.
+
+**What it holds.**
+
+- **The realm charter:** `~/.claude/CLAUDE.md`, read by every Claude session
+  in every folder. The law of the whole realm.
+- **Local law:** each settlement's own `CLAUDE.md` (and any in parent folders
+  that Claude Code also reads), per settlement.
+- **The guild's kit:** skills, hooks and settings (user-wide in `~/.claude/`,
+  and per project in `.claude/`), and scripts a project keeps for its
+  governors, such as `tools/shot.sh` here.
+
+**Its layers.** `Guildhall` lists the charter, the tools, and each settlement.
+`Guildhall › Realm charter` shows the user-wide rules. `Guildhall › Shaheen's App`
+shows *everything that applies to that city*: the charter, its local law and
+its kit, in the order Claude Code reads them, so the question "what is this
+governor actually told?" has one answer on one screen. `Guildhall › Tools`
+lists skills, hooks and scripts, and where each lives.
+
+**Not the Library.** A library (above) is a settlement whose code others read.
+The Guildhall holds no code anyone builds on, only the rules and tools that
+shape how governors work.
+
+**First version: read-only.** It shows the files as they are on disk, rendered
+as markdown, with an Open button that opens the file in your editor. Editing in
+place, and a governor proposing a change to a rule for you to approve, can come
+later. It reads files the Keep can already reach, and changes nothing about how
+sessions start, so it is safe to build from inside the app.
+
+**Needs art:** a building sprite for the map and a rail icon, like the bounty
+board's. Its hex is not chosen yet.
+
 ## 6. Metaphor to API
 
 | Threadlands | Agent SDK |
