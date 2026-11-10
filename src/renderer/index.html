@@ -413,6 +413,20 @@
   }
   .empty { color: var(--dim); padding: 24px 16px; }
 
+  /* The settlement list, on an empty panel. One row each; a dot for its state. */
+  .setlist { display: flex; flex-direction: column; gap: 5px; }
+  aside .setrow {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 8px 11px; text-align: left; white-space: nowrap;
+  }
+  .setrow .sname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 13px; }
+  .setrow .muted { flex: none; font-size: 11px; }
+  .setrow .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: rgba(94, 72, 38, .3); }
+  .setrow.working .dot { background: var(--working); }
+  .setrow.needs_you .dot { background: var(--flag); box-shadow: 0 0 0 3px rgba(163, 58, 34, .2); }
+  .setrow.error .dot { background: var(--flag); }
+  .setrow.dormant .sname { color: var(--dim); font-weight: 400; }
+
   /* The bounty board. */
   /* The board itself: the ledgers pinned above the warden's conversation, so
      the board's own content never scrolls away behind a chat. Both sit inside

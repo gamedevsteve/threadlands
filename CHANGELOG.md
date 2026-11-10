@@ -13,6 +13,10 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **The panel lists your settlements** when nothing is open, in place of the
+  how-to text: the ones that need you first, then the ones at work, then the
+  rest by when they were last active, each with a dot for its state. Click one
+  and the map glides in on it and its conversation opens.
 - **A governor can read the board.** Every settlement is spawned with the
   board's own tools: the ledgers granted to it, the bounties in them, and one
   bounty in full by the id you say out loud — `B-12`. Anything assigned to a

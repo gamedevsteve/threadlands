@@ -2574,15 +2574,12 @@ function render(): void {
   }
 
   if (!s) {
-    pane.innerHTML = `<div class="empty">
-      ${building
-        ? `<p><b>${esc(SETTLEMENT_ART.find((a) => a.value === building!.art)?.label ?? "")} ${esc(building.kind)}</b> in hand. Click empty ground to place it, or the build tool again to put it down.</p>`
-        : "<p>Pick a house from the build tool, then click empty ground to raise it. Click the cottage for realm defaults and what each account has left.</p>"}
-      <p>Two fingers to pan, pinch or <kbd>⌘</kbd>+scroll to zoom — or drag with a mouse.
-      <kbd>+</kbd> <kbd>-</kbd> zoom, <kbd>0</kbd> recentres. Drag a settlement to move it.</p>
-      <p><kbd>Enter</kbd> sends a prompt, <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line.</p>
-      ${byId.size ? "" : "<p>The realm is empty.</p>"}
-    </div>`;
+    pane.innerHTML = building
+      ? `<div class="empty"><p><b>${esc(SETTLEMENT_ART.find((a) => a.value === building!.art)?.label ?? "")} ${esc(building.kind)}</b> in hand. Click empty ground to place it, or the build tool again to put it down.</p></div>`
+      : renderSettlementList();
+    pane.querySelectorAll<HTMLButtonElement>("[data-goto]").forEach((b) =>
+      b.addEventListener("click", () => goToSettlement(b.dataset.goto!)),
+    );
     composer.classList.add("hidden");
     hint.textContent = `${byId.size} settlement${byId.size === 1 ? "" : "s"}`;
     return;
@@ -2911,9 +2908,47 @@ keep.onSettlement((s) => {
   byId.set(s.id, s);
   // Re-render when the open panel is about this settlement, when a flag goes up
   // anywhere, or when the idle pane is showing a count that just changed.
-  if (s.id === selected || s.state === "needs_you" || (isNew && !selected && !cottageOpen)) render();
+  // The list on an empty panel shows every settlement's state, so it redraws too.
+  const listShowing = !selected && !cottageOpen && !boardOpen && !founding;
+  if (s.id === selected || s.state === "needs_you" || listShowing) render();
   else if (!selected && !cottageOpen) hint.textContent = `${byId.size} settlement${byId.size === 1 ? "" : "s"}`;
 });
+/**
+ * The panel with nothing open: every settlement, the ones that want you first,
+ * then the ones at work, then the rest by when they were last active.
+ */
+function renderSettlementList(): string {
+  if (!byId.size) {
+    return `<div class="empty"><p>No settlements yet. Pick a house from the build tool, then click empty ground to raise it.</p></div>`;
+  }
+  const rank = (x: Settlement) => (x.state === "needs_you" ? 0 : x.state === "working" ? 1 : x.state === "error" ? 2 : 3);
+  const rows = [...byId.values()]
+    .sort((a, b) => rank(a) - rank(b) || b.lastActiveAt - a.lastActiveAt)
+    .map((x) => `<button class="setrow ${x.state}" data-goto="${esc(x.id)}">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="sname">${esc(x.name)}</span>
+        <span class="muted">${esc(x.kind)} · ${esc(x.state === "needs_you" ? "needs you" : x.state)}</span>
+      </button>`)
+    .join("");
+  return `<h2>Settlements</h2><div class="setlist">${rows}</div>`;
+}
+
+/** Zoom the map in on a settlement and open its conversation. */
+const FOCUS_ZOOM = 1.15;
+function goToSettlement(id: string): void {
+  const x = byId.get(id);
+  if (!x) return;
+  selected = id;
+  cottageOpen = false;
+  boardOpen = false;
+  founding = null;
+  layers = [];
+  // Camera units are screen pixels at the target zoom, so measure there.
+  const p = hexToPixel(x.hex, Math.round(74 * FOCUS_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, FOCUS_ZOOM);
+  render();
+}
+
 keep.onFocusSettlement((id) => {
   if (!byId.has(id)) return;
   selected = id;
