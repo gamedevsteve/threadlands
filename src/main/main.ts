@@ -11,6 +11,7 @@ import { RealmStore } from "./realm.js";
 import { BoardStore } from "./board.js";
 import { Supervisor } from "./supervisor.js";
 import { Warden } from "./warden.js";
+import { GovernorBoard } from "./boardtools.js";
 import { probeAccount } from "./usage.js";
 import { listModels } from "./models.js";
 import { artFor } from "../shared/types.js";
@@ -234,6 +235,22 @@ app.whenReady().then(() => {
   }
 
   store = new RealmStore();
+  // Before the Supervisor: every settlement is spawned with the board tools
+  // bound to it, so the board has to exist before any governor can.
+  board = new BoardStore(store.dir);
+
+  /**
+   * A governor's window onto the board. Read-only, apart from reporting a
+   * bounty fixed — and that goes to the warden, which raises the close flag.
+   * Nothing a settlement does here closes anything or reaches anyone else.
+   */
+  const governorBoard = new GovernorBoard(
+    board,
+    () => pushBoard(),
+    (id) => store.settlements.get(id),
+    (s, b, note) => warden.report(s, b, note),
+  );
+
   sup = new Supervisor(
     store.settlements,
     (s) => {
@@ -246,11 +263,11 @@ app.whenReady().then(() => {
     () => store.defaults.permissionMode,
     claudeExecutable(),
     (profileId) => sessionResetsAt.get(profileId) ?? null,
+    (s) => governorBoard.extrasFor(s),
   );
 
   ipcMain.handle("getRealm", () => store.toRealm());
 
-  board = new BoardStore(store.dir);
   ipcMain.handle("getBoard", () => board.board);
   ipcMain.handle("boardOp", async (_e, op: BoardOp) => {
     await board.apply(op, (id) => store.settlements.get(id));
@@ -271,7 +288,7 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle("wardenSend", (_e, text: string) => warden.send(text));
-  ipcMain.handle("wardenAnswerFlag", (_e, allow: boolean) => warden.answerFlag(allow));
+  ipcMain.handle("wardenAnswerFlag", (_e, answer: boolean | string) => warden.answerFlag(answer));
   ipcMain.handle("wardenInterrupt", () => warden.interrupt());
   ipcMain.handle("wardenSetModel", (_e, model: string | null) => warden.setModel(model));
   ipcMain.handle("wardenSetBudget", (_e, usd: number | null) => warden.setBudget(usd));
@@ -432,7 +449,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("send", (_e, id: string, text: string) => sup.send(id, text));
-  ipcMain.handle("answerFlag", (_e, id: string, allow: boolean) => sup.answerFlag(id, allow));
+  ipcMain.handle("answerFlag", (_e, id: string, answer: boolean | string) => sup.answerFlag(id, answer));
   ipcMain.handle("interrupt", (_e, id: string) => sup.interrupt(id));
 
   ipcMain.handle("openTerminal", (_e, id: string) => {

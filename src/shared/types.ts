@@ -58,6 +58,25 @@ export function artFor(kind: SettlementKind, art: string | null | undefined): Se
  */
 export type SettlementState = "idle" | "working" | "needs_you" | "dormant" | "error";
 
+/**
+ * One answer a flag offers.
+ *
+ * Most flags are allow or decline and carry none of these. A flag that needs
+ * more than two answers — the warden's close flag, which can also send work
+ * back — lists them here, and the panel draws a button per choice. `value` is
+ * all the renderer sends back; the Keep holds what each one means.
+ */
+export type FlagChoice = {
+  value: string;
+  label: string;
+  /** One line under the button: what choosing it does. */
+  hint?: string;
+  /** Whether the tool call goes through. Only one choice should allow it. */
+  allow: boolean;
+  /** What the session is told when this choice declines the call. */
+  reply?: string;
+};
+
 /** A permission request waiting on the user — the raised flag, in full. */
 export type PendingFlag = {
   id: string;
@@ -66,6 +85,8 @@ export type PendingFlag = {
   /** A one-line human summary the map can show without parsing tool input. */
   summary: string;
   raisedAt: number;
+  /** More than two answers, when the one line above is not a yes-or-no. */
+  choices?: FlagChoice[];
 };
 
 export type ChatEntry =
@@ -215,7 +236,8 @@ export type Api = {
   raze(id: string): Promise<void>;
   move(id: string, hex: Hex): Promise<void>;
   send(id: string, text: string): Promise<void>;
-  answerFlag(id: string, allow: boolean): Promise<void>;
+  /** True or false for a plain flag; a FlagChoice value for one with choices. */
+  answerFlag(id: string, answer: boolean | string): Promise<void>;
   interrupt(id: string): Promise<void>;
   openTerminal(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
@@ -247,7 +269,7 @@ export type Api = {
   onBoard(cb: (b: Board) => void): void;
   /** Talk to the warden. Spawns or resumes it, like a governor. */
   wardenSend(text: string): Promise<void>;
-  wardenAnswerFlag(allow: boolean): Promise<void>;
+  wardenAnswerFlag(answer: boolean | string): Promise<void>;
   wardenInterrupt(): Promise<void>;
   wardenSetModel(model: string | null): Promise<void>;
   /** Null follows the realm's ceiling. */
@@ -326,4 +348,10 @@ export type BoardOp =
   | { op: "assign"; id: string; settlementId: string | null }
   | { op: "setDone"; id: string; done: boolean }
   | { op: "comment"; id: string; text: string }
+  /**
+   * A governor says it has fixed one. Written in the log and handed to the
+   * warden; it closes nothing and changes no state. The only op a settlement
+   * can cause, and the only one that is not something you do by hand.
+   */
+  | { op: "reportFixed"; id: string; settlementId: string; note: string }
   | { op: "deleteBounty"; id: string };

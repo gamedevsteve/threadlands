@@ -114,6 +114,17 @@ tools and nothing else, that they reach the board, that posting needs no
 permission, and that assigning raises a flag the answer decides. **It spends
 real tokens** (about $0.06).
 
+```bash
+npm run governor
+```
+
+Puts a real settlement and the real warden either side of the board, and checks
+what only live sessions can show: that a governor has the board's read tools and
+`report_fixed` and nothing else of the board, that it reads the ledgers granted
+to it and is refused the rest by name, that a report lands in the bounty's log
+and wakes the warden, and that the close flag's three answers each do what they
+say. **It spends real tokens** (about $0.30).
+
 `npm run usage` prints what the signed-in account has left, without spending
 anything.
 
@@ -124,6 +135,7 @@ src/main/        the Keep — owns every session; the renderer never sees the SD
   supervisor.ts  one Governor per settlement, and the three lifecycle traps
   board.ts       the bounty board, in board.json beside the realm
   warden.ts      the board's own Claude, and the board tools it works through
+  boardtools.ts  the board as a governor sees it: read it, report one fixed
   realm.ts       the realm file in userData
   usage.ts       the free budget probe behind the cottage panel
   selftest.ts    the end-to-end check
@@ -244,6 +256,45 @@ warden has no tile of its own. The mechanism is the one governors use: those
 two tools are kept out of `allowedTools` so they fall through to `canUseTool`.
 Nothing the warden does ever messages a settlement.
 
+### What a governor has of the board
+
+Every settlement gets the board's tools too — a smaller set, read-only but for
+one thing. It can list the ledgers **granted** to it, read the bounties in
+them, and read one in full by the id you say out loud, `B-12`. A bounty
+assigned to a settlement is readable by it even when its ledger is not:
+assigning is its own grant, and survives a move to a ledger nobody granted.
+Anything else is refused by name — "B-2 is not yours to read" — so a governor
+knows to ask you rather than wonder whether it mistyped. It never learns what
+is in the ledgers that are yours alone, or which other settlement a bounty
+belongs to.
+
+No governor can post, edit, move, assign or close a bounty. The one thing it
+can say is **`report_fixed`**, and that goes to the warden, not to the board.
+
+### Closing a bounty
+
+A report wakes the warden with it. The board has already written the report in
+the bounty's log, so it is on the record whether or not the warden gets to it.
+Then the warden does three things: `check_work` on that settlement, a comment
+on the bounty saying what was claimed against what git shows, and the **close
+flag**, which carries what it found — committed or not, pushed or not, which
+branch.
+
+That flag has three answers rather than two:
+
+| Answer | What happens |
+|---|---|
+| **Close it** | Done. The branch and commit are read from git and kept on the bounty. |
+| **Send it back** | The warden writes what is still missing on the bounty. Nothing is sent: you tell its governor. |
+| **Leave it open** | Nothing happens. The bounty stays as it is. |
+
+Two of those decline the warden's call; only the wording it gets back differs,
+and that is enough for it to know what to do next. A flag can carry its own
+`choices` now — see `FlagChoice` — and this is the only one that does.
+
+Nothing in any of this messages a settlement or starts work. A governor is told
+its report was filed and that you will come back to it, and no more.
+
 ### Notifications
 
 A settlement — and the warden — raises a system notification when it **needs
@@ -310,6 +361,6 @@ comes up "Not logged in". The default profile must leave it unset.
 
 Walls, libraries, trade routes, messengers, many workers per settlement, and
 per-settlement accounts beyond the default profile. The map, the Keep, the flag,
-the reaper, the cottage and the bounty board are done. Governors cannot read a
-ledger they have been granted yet, and cannot report a bounty fixed to the
-warden — that is the next step on the board. See `BUILD_PLAN.md` phases 5 and 6.
+the reaper, the cottage and the bounty board — the warden, a governor's reading
+of it, and closing — are all done. The Guildhall is planned and not built. See
+`BUILD_PLAN.md` phases 5 and 6.

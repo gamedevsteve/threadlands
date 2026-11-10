@@ -13,6 +13,23 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **A governor can read the board.** Every settlement is spawned with the
+  board's own tools: the ledgers granted to it, the bounties in them, and one
+  bounty in full by the id you say out loud — `B-12`. Anything assigned to a
+  settlement is readable by it even when its ledger is not, because assigning
+  is its own grant. Anything else is refused by name, so a governor knows to
+  ask rather than to guess. That is all it may do: no governor can post, edit,
+  move, assign or close a bounty, and none of this reaches another settlement.
+- **A governor can report a bounty fixed**, and that goes to the warden rather
+  than to the board. The board writes the report in the bounty's log, the
+  warden wakes with it, checks the folder in git, says what it found against
+  what was claimed, and raises **the close flag**, which has three answers
+  rather than two: *close it*, which records the branch and commit from git;
+  *send it back*, where the warden writes what is still missing on the bounty
+  and you tell its governor yourself; or *leave it open*, where nothing
+  happens. Nothing ever messages a settlement or starts work.
+  `npm run governor` proves the lot against real sessions, for about thirty
+  cents.
 - **The warden stands at his board**, at its right-hand side, the way you stand
   by the cottage: fixed to it, with a shadow, at every zoom. Your avatar and he
   share the same drawing code now.
@@ -38,7 +55,7 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   through git — branch, last commit, anything uncommitted, anything unpushed.
   Brain-dump a pile of issues at it and it proposes bounties for you to agree
   to before it posts any. **Assigning and closing ask first**, as a flag you
-  allow or decline; everything else on the board it may simply do. It never
+  answer; everything else on the board it may simply do. It never
   messages a settlement and nothing it does starts work. The warden and its
   transcript live in `board.json` with the rest of the board, so a warden turn
   can never cost a settlement its session. `npm run warden` proves the lot
@@ -52,8 +69,8 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   and notes on the clipboard. Assigning only records who it is for: nothing is
   sent and nothing starts. Marking it done records the branch and commit in the
   assigned settlement's folder. A bounty can move between ledgers and
-  keeps its assignment. Ledgers can be marked as readable by cities, ready for
-  when governors get board tools. Kept in `board.json`, beside the realm.
+  keeps its assignment. Ledgers can be marked as readable by cities, which is
+  what a governor's board tools go by. Kept in `board.json`, beside the realm.
 - `⌘=` / `⌘-` / `⌘0` size the conversation text.
 - The hex under the pointer shows in the top bar: its coordinate and what stands on it.
 - Your own messages render markdown, Slack style: `*bold*`, `_italic_`.

@@ -29,7 +29,7 @@ type Keep = {
   raze(id: string): Promise<void>;
   move(id: string, hex: { q: number; r: number }): Promise<void>;
   send(id: string, text: string): Promise<void>;
-  answerFlag(id: string, allow: boolean): Promise<void>;
+  answerFlag(id: string, answer: boolean | string): Promise<void>;
   interrupt(id: string): Promise<void>;
   openTerminal(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
@@ -56,7 +56,7 @@ type Keep = {
   boardOp(op: BoardOp): Promise<Board>;
   onBoard(cb: (b: Board) => void): void;
   wardenSend(text: string): Promise<void>;
-  wardenAnswerFlag(allow: boolean): Promise<void>;
+  wardenAnswerFlag(answer: boolean | string): Promise<void>;
   wardenInterrupt(): Promise<void>;
   wardenSetModel(model: string | null): Promise<void>;
   wardenSetBudget(usd: number | null): Promise<void>;
@@ -1863,18 +1863,47 @@ function runSummary(entries: Session["chat"][number][]): string {
 
 /**
  * The raised flag. The same block for a governor and for the warden: what it
- * wants in one line, and the two answers.
+ * wants in one line, and the answers.
+ *
+ * Most flags are allow or decline. One that carries its own choices — the
+ * warden's close flag, where "no" means two different things — draws a button
+ * per choice with a line under it saying what it does, because the difference
+ * between sending work back and leaving it alone is the whole question.
  */
 function renderFlag(s: Session): string {
   if (!s.flag) return "";
-  return `<div class="flag">
-      <h3>Needs you</h3>
-      <div class="what">${esc(s.flag.summary)}</div>
-      <div class="btns">
+  const choices = s.flag.choices ?? [];
+  const answers = choices.length
+    ? `<div class="btns">${choices
+        .map((c, i) => `<button class="${i === 0 ? "primary" : ""}" data-choice="${esc(c.value)}">${esc(c.label)}</button>`)
+        .join("")}</div>
+      <div class="choicehints">${choices
+        .filter((c) => c.hint)
+        .map((c) => `<div><b>${esc(c.label)}</b> — ${esc(c.hint!)}</div>`)
+        .join("")}</div>`
+    : `<div class="btns">
         <button class="primary" id="allow">Allow</button>
         <button class="danger" id="deny">Decline</button>
-      </div>
+      </div>`;
+  return `<div class="flag">
+      <h3>Needs you</h3>
+      <div class="what${choices.length ? " said" : ""}">${esc(s.flag.summary)}</div>
+      ${answers}
     </div>`;
+}
+
+/**
+ * Wire whichever answers the flag drew.
+ *
+ * `answer` takes the same shape the Keep does: true, false, or the value of one
+ * of the flag's own choices.
+ */
+function bindFlag(root: ParentNode, answer: (a: boolean | string) => void): void {
+  root.querySelector("#allow")?.addEventListener("click", () => answer(true));
+  root.querySelector("#deny")?.addEventListener("click", () => answer(false));
+  root.querySelectorAll<HTMLButtonElement>(".flag [data-choice]").forEach((b) =>
+    b.addEventListener("click", () => answer(b.dataset.choice!)),
+  );
 }
 
 /** The transcript: bubbles, with the work between them folded into one line. */
@@ -2100,7 +2129,7 @@ function renderLedger(l: Ledger | undefined): string {
     <label>Read by</label>
     <div class="grants">${readers || '<div class="muted">Nobody: this ledger is yours alone.</div>'}</div>
     ${addSelect}
-    <p class="muted hint">They will be able to read it once governors have board tools.</p>
+    <p class="muted hint">A granted city can read this ledger's bounties, and report one fixed to the warden. Nothing else.</p>
 
     <label>Ledger name</label>
     <input id="b-ledger-name" maxlength="80" value="${esc(l.name)}" />
@@ -2228,8 +2257,7 @@ function bindBoard(): void {
     if (layers.includes("details")) popLayer(layers.indexOf("details"));
     else pushLayer("details");
   });
-  $("#allow")?.addEventListener("click", () => void keep.wardenAnswerFlag(true));
-  $("#deny")?.addEventListener("click", () => void keep.wardenAnswerFlag(false));
+  bindFlag(pane, (a) => void keep.wardenAnswerFlag(a));
   $<HTMLSelectElement>("#s-model")?.addEventListener("change", (e) => {
     const value = (e.target as HTMLSelectElement).value || null;
     w.model = value;
@@ -2654,8 +2682,7 @@ function render(): void {
       void keep.setArt(s.id, art);
     });
   });
-  pane.querySelector("#allow")?.addEventListener("click", () => void keep.answerFlag(s.id, true));
-  pane.querySelector("#deny")?.addEventListener("click", () => void keep.answerFlag(s.id, false));
+  bindFlag(pane, (a) => void keep.answerFlag(s.id, a));
   const doRaze = async () => {
     await keep.raze(s.id);
     byId.delete(s.id);

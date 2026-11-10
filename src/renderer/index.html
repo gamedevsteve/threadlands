@@ -588,6 +588,12 @@
   }
   .flag h3 { margin: 0 0 4px; font-size: 12px; color: var(--flag); text-transform: uppercase; letter-spacing: .06em; }
   .flag .what { font-family: ui-monospace, Menlo, monospace; font-size: 11px; margin-bottom: 9px; word-break: break-all; }
+  /* A flag with choices asks something in words, not in tool input: let it read
+     as a sentence rather than as a path that can break anywhere. */
+  .flag .what.said { font-family: inherit; font-size: 12px; word-break: normal; }
+  .flag .btns { margin-bottom: 0; }
+  .choicehints { margin-top: 9px; display: flex; flex-direction: column; gap: 4px; font-size: 11px; opacity: .66; }
+  .choicehints b { font-weight: 700; opacity: 1; }
 
   /* meters */
   .meter { margin-bottom: 11px; }

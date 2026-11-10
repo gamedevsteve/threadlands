@@ -233,6 +233,16 @@ export class BoardStore {
         note(bounty(op.id), t.slice(0, 20_000), actor);
         break;
       }
+      case "reportFixed": {
+        const x = bounty(op.id);
+        const s = settlement(op.settlementId);
+        const t = op.note.trim();
+        if (!t) throw new Error("A report needs to say what was fixed.");
+        // The board records it and nothing more: no state changes, nothing is
+        // closed. The warden checks the work, and you answer its flag.
+        note(x, `${s?.name ?? "A settlement"} reported this fixed: ${t.slice(0, 2_000)}`);
+        break;
+      }
       case "deleteBounty":
         bounty(op.id);
         b.bounties = b.bounties.filter((x) => x.id !== op.id);

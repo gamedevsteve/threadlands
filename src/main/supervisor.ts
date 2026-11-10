@@ -23,6 +23,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 import type {
+  FlagChoice,
   PendingFlag,
   PermissionModeValue,
   Session,
@@ -102,6 +103,11 @@ export class Supervisor {
     private readonly defaultMode: () => PermissionModeValue,
     private readonly executable: string | undefined,
     private readonly sessionResetsAt: (profileId: string) => string | null,
+    /**
+     * What a settlement is given on top of the realm's defaults: its board
+     * tools, bound to it. Merged last, so nothing above can be lost to it.
+     */
+    private readonly extrasFor: (s: Settlement) => GovernorExtras = () => ({}),
   ) {}
 
   /**
@@ -150,6 +156,7 @@ export class Supervisor {
           this.rollWindow(s);
           s.windowSpentUsd += delta;
         },
+        this.extrasFor(s),
       );
       this.governors.set(id, g);
       g.start();
@@ -161,8 +168,9 @@ export class Supervisor {
     g.push(text);
   }
 
-  answerFlag(id: string, allow: boolean): void {
-    this.governors.get(id)?.answerFlag(allow);
+  /** True or false, or the value of one of the flag's own choices. */
+  answerFlag(id: string, answer: boolean | string): void {
+    this.governors.get(id)?.answerFlag(answer);
   }
 
   /**
@@ -336,6 +344,11 @@ export type GovernorExtras = {
   options?: Partial<Options>;
   /** Overrides the default one-liner for a tool call. */
   summarise?: (toolName: string, input: unknown) => string;
+  /**
+   * More than two answers for this call, when allow-or-decline is the wrong
+   * question. The warden's close flag is the one that has them.
+   */
+  choicesFor?: (toolName: string, input: unknown) => FlagChoice[] | undefined;
 };
 
 /**
@@ -383,12 +396,14 @@ export class Governor<S extends Session = Session> {
   /** The flag mechanic: only fires when permission falls through to a prompt. */
   private canUseTool: CanUseTool = async (toolName, input) => {
     try {
+      const choices = this.extras.choicesFor?.(toolName, input);
       const flag: PendingFlag = {
         id: randomUUID(),
         toolName,
         input,
         summary: this.describe(toolName, input),
         raisedAt: Date.now(),
+        ...(choices?.length ? { choices } : {}),
       };
       this.s.flag = flag;
       this.s.state = "needs_you";
@@ -408,19 +423,31 @@ export class Governor<S extends Session = Session> {
     }
   };
 
-  answerFlag(allow: boolean): void {
+  /**
+   * Answer the raised flag: true or false, or the value of one of its choices.
+   *
+   * A value the flag never offered is not an answer, so it degrades to a
+   * decline — anything else would leave the session parked on a promise that
+   * never settles.
+   */
+  answerFlag(answer: boolean | string): void {
     const resolve = this.pending;
     if (!resolve) return;
     this.pending = null;
+    const flag = this.s.flag;
+    const chosen = typeof answer === "string" ? flag?.choices?.find((c) => c.value === answer) : undefined;
+    const allow = chosen ? chosen.allow : answer === true;
     this.s.chat.push({
       role: "system",
-      text: allow ? `you allowed: ${this.s.flag?.summary ?? "it"}` : `you declined: ${this.s.flag?.summary ?? "it"}`,
+      text: chosen
+        ? `you chose "${chosen.label}": ${flag?.summary ?? "it"}`
+        : `you ${allow ? "allowed" : "declined"}: ${flag?.summary ?? "it"}`,
       at: Date.now(),
     });
     resolve(
       allow
-        ? { behavior: "allow", updatedInput: (this.s.flag?.input ?? {}) as Record<string, unknown> }
-        : { behavior: "deny", message: "The settler declined this." },
+        ? { behavior: "allow", updatedInput: (flag?.input ?? {}) as Record<string, unknown> }
+        : { behavior: "deny", message: chosen?.reply ?? "The settler declined this." },
     );
   }
 

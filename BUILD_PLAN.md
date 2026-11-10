@@ -601,8 +601,10 @@ raises a flag on the board rather than closing it:
 > Shaheen's App says it fixed *Fix login redirect*. It isn't committed or
 > pushed yet. Have it commit and push before this counts as fixed?
 
-The flag offers: close it anyway; send the governor back to commit and push
-first; or leave it open. The answer goes into the bounty's log.
+The flag offers three answers rather than two: **close it**, which records the
+branch and commit from git; **send it back**, where the warden writes what is
+still missing on the bounty — nothing is sent to the governor, you tell it; or
+**leave it open**, where nothing happens. The answer goes into the bounty's log.
 
 **Storage.** `board.json` beside `realm.json`, written atomically. Keeping it out
 of the realm file means a board change can never cost a settlement its session.
@@ -622,6 +624,31 @@ thing twice on purpose.) `npm run warden` is the spike that proves it against a
 real session. The warden is deliberately not in the `Supervisor`: nothing about
 starting or resuming a settlement should have to know it exists.
 
+**How a governor reads it** (done, 2026-11-10). `src/main/boardtools.ts`. The
+same pattern as the warden's, one server per settlement rather than one for the
+realm: `GovernorBoard.extrasFor(s)` builds an in-process MCP server bound to
+that settlement's id, and the Supervisor hands it to the `Governor` as
+`extras.options` — `mcpServers` and an `allowedTools` naming all four, since
+reading the board asks nobody. That merge happens last, so nothing the Keep
+sets for every settlement (`disallowedTools`, the budget, `resume`) can be lost
+to it. The tools are `list_ledgers`, `list_bounties`, `read_bounty` and
+`report_fixed`, and there are no others: a governor cannot post, edit, move,
+assign or close. What it may see is `Ledger.grants` plus anything assigned to
+it — assigning is its own grant and survives a move — and anything else is
+refused by name without leaking its title.
+
+**How closing is built** (done, 2026-11-10). `report_fixed` writes the report
+in the bounty's log through `BoardStore.apply` (`reportFixed`, the only op a
+settlement can cause) and then calls `Warden.report`, which wakes the warden
+with the report as a message marked as one. The warden does the rest with the
+tools it already had: `check_work`, a comment, then `close_bounty` with a
+`found` line. That raises the flag, which now carries its own `choices` — see
+`FlagChoice` in the shared types, and `CLOSE_CHOICES` in warden.ts. Two of the
+three decline the tool call; only the `reply` the warden gets back differs, and
+that is enough for it to know whether to write what is missing on the bounty or
+to let it be. `npm run governor` is the spike that proves both against real
+sessions.
+
 **Build order.** The first two are panel and data work, safe to build in the
 app; the rest change how sessions start, so they are built from a terminal.
 
@@ -629,8 +656,8 @@ app; the rest change how sessions start, so they are built from a terminal.
 2. Ledgers and bounties by hand: `board.json`, the three layers, moves, the log.
    Useful on its own. ✅
 3. The warden: a new kind of session, with board tools and the Keep's git check. ✅
-4. Governor tools: read granted ledgers, report a bounty fixed to the warden.
-5. The closing flag.
+4. Governor tools: read granted ledgers, report a bounty fixed to the warden. ✅
+5. The closing flag. ✅
 
 ### The Guildhall
 
@@ -720,6 +747,9 @@ are untouched.
 
 Built along the way, and not in the original plan:
 
+- The bounty board, the warden that keeps it, and a governor's reading of it: granted
+  ledgers, `report_fixed`, and a close flag with three answers. Ledger grants are the first
+  grant of any kind in the realm, though they grant reading a checklist, not territory.
 - Permission modes per settlement — ask / auto / accept edits / plan / never ask — cycled with
   Shift+Tab over a realm default. This is most of what *Allow always* was for.
 - A model per settlement over a realm default, switchable **mid-conversation**.

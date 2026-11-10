@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "spike": "tsx spike/phase0.ts",
     "warden": "tsx spike/warden.ts",
+    "governor": "tsx spike/governor.ts",
     "usage": "tsx spike/usage-probe.ts",
     "selftest": "npm run build && THREADLANDS_SELFTEST=./selftest electron .",
     "assets": "python3 tools/prep_assets.py",

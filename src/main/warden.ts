@@ -17,6 +17,12 @@
  *
  * Nothing here ever messages a settlement or starts work. Assigning records who
  * a bounty is for; telling the governor is still yours to do.
+ *
+ * Work arrives the other way, though: a governor can report a bounty fixed, and
+ * that report wakes the warden with it rather than touching the board. It
+ * checks the work in git and raises its close flag with what it found. The
+ * answer is yours, and it has three parts rather than two — close it, send it
+ * back, or leave it open.
  */
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { InferShape, McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
@@ -24,7 +30,7 @@ import { z } from "zod";
 import { Governor } from "./supervisor.js";
 import { gitReport } from "./board.js";
 import type { BoardStore } from "./board.js";
-import type { Bounty, Ledger, Settlement, Warden as WardenRecord } from "../shared/types.js";
+import type { Bounty, ChatEntry, FlagChoice, Ledger, Settlement, Warden as WardenRecord } from "../shared/types.js";
 import { bountyRef } from "../shared/types.js";
 
 /** An MCP text answer, and the same shaped like a refusal. */
@@ -33,6 +39,46 @@ const refused = (text: string) => ({ content: [{ type: "text" as const, text }],
 
 /** The two tools that raise a flag instead of just happening. */
 const ASKS_FIRST = ["assign_bounty", "close_bounty"] as const;
+
+/**
+ * The close flag's three answers.
+ *
+ * Closing is the one thing on the board where "no" is two different answers:
+ * the work is not done and someone should finish it, or the bounty simply
+ * stays as it is. Both decline the call — only the wording the warden gets
+ * back differs, and that is enough for it to know what to do next.
+ *
+ * Nothing here reaches a settlement. Sending work back means the warden writes
+ * what is missing on the bounty; you are still the one who tells its governor.
+ */
+const CLOSE_CHOICES: FlagChoice[] = [
+  {
+    value: "close",
+    label: "Close it",
+    hint: "Done. The branch and commit it was finished on are read from git and kept on the bounty.",
+    allow: true,
+  },
+  {
+    value: "back",
+    label: "Send it back",
+    hint: "Not finished. The warden writes what is missing on the bounty — you still tell its governor.",
+    allow: false,
+    reply:
+      "The settler will not close this: they want the work sent back. Do not close it. " +
+      "Comment on the bounty with exactly what is still missing — what is uncommitted, " +
+      "what is unpushed, which branch — then tell the settler, in one line, to pass that " +
+      "on to the governor. You cannot message a settlement, and nothing you do here will.",
+  },
+  {
+    value: "leave",
+    label: "Leave it open",
+    hint: "Nothing happens. The bounty stays exactly as it is.",
+    allow: false,
+    reply:
+      "The settler wants this left open. Do not close it, do not comment on it, and do not " +
+      "ask again. Say in one line that it stays open, and stop there.",
+  },
+];
 
 const TOOL_NAMES = [
   "list_ledgers",
@@ -85,6 +131,16 @@ How to work:
   settlement it is assigned to. Uncommitted or unpushed work is not finished
   work: say so plainly, and suggest the governor commit and push before it
   counts.
+- **A report from a settlement.** A governor can report a bounty fixed. The
+  report arrives as a message marked as one, and it is the only thing on the
+  board that is not the user speaking. Work it in this order, every time:
+  check_work on that settlement; comment_on_bounty with what it said and what
+  git actually shows; then close_bounty with \`found\` set to the state of the
+  work in one line — committed or not, pushed or not, which branch. That last
+  call raises the close flag, and the user's answer decides it. If they send it
+  back, comment on the bounty with what is still missing and tell them to pass
+  it on: you cannot reach the governor, and neither the report nor your answer
+  ever does.
 
 How to talk: like a careful clerk who knows the board by heart. Short answers,
 markdown, no preamble. Name bounties by id and title — "B-12 Fix login
@@ -345,9 +401,12 @@ export class Warden {
             : `${bountyRef(b)} is nobody's now.`;
         }),
 
-        t("close_bounty", "Mark a bounty done, or open it again. This raises a flag: the user allows or declines it. Check the work first.", {
+        t("close_bounty", "Mark a bounty done, or open it again. This raises the close flag, and the user's answer decides it: close it, send it back, or leave it open. Check the work first.", {
           bounty: bountyArg,
           reopen: z.boolean().optional().describe("True to open a done bounty again. Default false: close it."),
+          found: z.string().optional().describe("What check_work showed, in one line — committed or not, pushed or not, which branch. The user reads this on the flag, so it is how they decide."),
+        // `found` is deliberately not read here: it is for the flag, which the
+        // user reads before this handler ever runs. See describe().
         }, async ({ bounty, reopen }) => {
           const b = this.bountyNamed(bounty);
           await this.apply({ op: "setDone", id: b.id, done: !reopen });
@@ -387,10 +446,62 @@ export class Warden {
       case "move_bounty": return `move ${title} to ${String(i.ledger ?? "another ledger")}`;
       case "comment_on_bounty": return `comment on ${title}`;
       case "assign_bounty": return `assign ${title} to ${String(i.settlement ?? "someone")}`;
-      case "close_bounty": return i.reopen ? `open ${title} again` : `close ${title}`;
+      case "close_bounty": {
+        if (i.reopen) return `open ${title} again`;
+        const found = typeof i.found === "string" && i.found.trim() ? ` — ${i.found.trim()}` : "";
+        return `close ${title}${found}`;
+      }
       default: return `use ${toolName}`;
     }
   };
+
+  /**
+   * The answers a flag offers. Only closing has more than two.
+   *
+   * Opening a done bounty again is a plain yes or no: there is no work to send
+   * back, and "leave it open" would mean the opposite of what it says.
+   */
+  private choicesFor = (toolName: string, input: unknown): FlagChoice[] | undefined => {
+    const i = (input ?? {}) as Record<string, unknown>;
+    if (toolName.replace(/^mcp__board__/, "") !== "close_bounty") return undefined;
+    return i.reopen ? undefined : CLOSE_CHOICES;
+  };
+
+  // ── reports from a settlement ──────────────────────────────────────────────
+
+  /**
+   * A governor says it has fixed a bounty.
+   *
+   * The report is already in the bounty's log by the time this is called — the
+   * board wrote it, so it is on the record whether or not the warden ever gets
+   * to it. This wakes the warden with it, and the rest is the warden's: check
+   * the work, say what it found, and raise the close flag.
+   *
+   * It is a message into the warden's own conversation, marked as a report so
+   * the warden never mistakes it for the settler speaking. Nothing goes back
+   * the other way: the governor is told its report was filed and no more.
+   */
+  report(s: Settlement, b: Bounty, note: string): void {
+    const prompt = [
+      `[a report from the settlement ${s.name} — not from the settler]`,
+      "",
+      `${s.name} says it has fixed ${bountyRef(b)} ${b.title}.`,
+      "",
+      "What it said it did:",
+      note.trim(),
+      "",
+      `The report is already in ${bountyRef(b)}'s log; the board wrote it. Now do your three steps:`,
+      `check_work on ${s.name}, comment on ${bountyRef(b)} with what it claimed against what git shows,`,
+      `then close_bounty ${bountyRef(b)} with \`found\` set to the state of the work in one line. That`,
+      "raises the close flag for the settler, whose answer decides it. Say nothing to the settlement:",
+      "you have no way to, and it has already been told that the settler will come back to it.",
+    ].join("\n");
+    this.deliver(prompt, {
+      role: "system",
+      text: `${s.name} reported ${bountyRef(b)} ${b.title} fixed.`,
+      at: Date.now(),
+    });
+  }
 
   // ── the session ────────────────────────────────────────────────────────────
 
@@ -412,12 +523,21 @@ export class Warden {
 
   /** Send a prompt, spawning or resuming the warden as needed. */
   send(text: string): void {
+    this.deliver(text, { role: "you", text, at: Date.now() });
+  }
+
+  /**
+   * Put something in front of the warden: a message from you, or a report from
+   * a settlement. One path, so a report spawns, resumes and is budgeted exactly
+   * as a message typed into the board's panel.
+   */
+  private deliver(prompt: string, entry: ChatEntry): void {
     const w = this.w;
     if (!this.gov) {
       this.rollWindow();
       const left = this.ceiling() - w.windowSpentUsd;
       if (left < 0.01) {
-        w.chat.push({ role: "you", text, at: Date.now() });
+        w.chat.push(entry);
         w.chat.push({
           role: "system",
           text:
@@ -449,6 +569,7 @@ export class Warden {
         },
         {
           summarise: this.describe,
+          choicesFor: this.choicesFor,
           options: {
             // Its world, in four lines: no built-in tools at all, the board's
             // tools only, nothing from the filesystem's settings or CLAUDE.md,
@@ -472,15 +593,19 @@ export class Warden {
       );
       this.gov.start();
     }
-    w.chat.push({ role: "you", text, at: Date.now() });
-    w.state = "working";
+    w.chat.push(entry);
+    // A report can land while a flag is up. The flag is still the thing that
+    // needs you, so it keeps the state; the message waits its turn in the
+    // input stream either way.
+    if (w.state !== "needs_you") w.state = "working";
     w.lastActiveAt = Date.now();
     this.emit();
-    this.gov.push(text);
+    this.gov.push(prompt);
   }
 
-  answerFlag(allow: boolean): void {
-    this.gov?.answerFlag(allow);
+  /** True or false, or the value of one of the close flag's three choices. */
+  answerFlag(answer: boolean | string): void {
+    this.gov?.answerFlag(answer);
   }
 
   async interrupt(): Promise<void> {
