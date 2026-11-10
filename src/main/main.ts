@@ -10,12 +10,14 @@ import { fileURLToPath } from "node:url";
 import { RealmStore } from "./realm.js";
 import { BoardStore } from "./board.js";
 import { Supervisor } from "./supervisor.js";
+import { Warden } from "./warden.js";
 import { probeAccount } from "./usage.js";
 import { listModels } from "./models.js";
 import { artFor } from "../shared/types.js";
 import type {
   BoardOp,
   AccountBudget,
+  Session,
   FolderChoice,
   ModelChoice,
   PermissionModeValue,
@@ -71,6 +73,7 @@ let win: BrowserWindow | null = null;
 let store: RealmStore;
 let sup: Supervisor;
 let board: BoardStore;
+let warden: Warden;
 
 /** When each account's usage session resets, from the cottage's probe. */
 const sessionResetsAt = new Map<string, string | null>();
@@ -83,13 +86,18 @@ const sessionResetsAt = new Map<string, string | null>();
  */
 const lastNotifiedState = new Map<string, Settlement["state"]>();
 
-function notify(settlement: Settlement, body: string): void {
+/**
+ * `reveal` is what the click should bring you to — the settlement's tile, or
+ * the bounty board for the warden. A notification you cannot follow is worse
+ * than none.
+ */
+function notify(title: string, body: string, reveal: () => void): void {
   const when = store?.defaults.notifications ?? "background";
   if (when === "off" || !Notification.isSupported()) return;
   // "background" means: do not interrupt someone already looking at the map.
   if (when === "background" && win?.isFocused()) return;
 
-  const n = new Notification({ title: settlement.name, body, silent: false });
+  const n = new Notification({ title, body, silent: false });
   // macOS refuses notifications from an app it has not registered, and does so
   // silently unless you listen: running the Electron binary straight out of
   // node_modules fails with UNErrorDomain 1 every time. Only a packaged,
@@ -101,25 +109,45 @@ function notify(settlement: Settlement, body: string): void {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
-      win.webContents.send("focusSettlement", settlement.id);
+      reveal();
     }
     app.focus({ steal: true });
   });
   n.show();
 }
 
-function announce(s: Settlement): void {
+/**
+ * Tell you on the transition, whoever it was.
+ *
+ * The warden comes through here too: it is not on the map, so its click opens
+ * the bounty board instead of selecting a tile.
+ */
+function announce(s: Session, reveal: () => void): void {
   const prev = lastNotifiedState.get(s.id);
   lastNotifiedState.set(s.id, s.state);
   if (prev === s.state) return;
-  if (s.state === "needs_you") notify(s, "Needs your guidance.");
-  else if (s.state === "idle" && prev === "working") notify(s, "Finished, and waiting for you.");
+  if (s.state === "needs_you") notify(s.name, "Needs your guidance.", reveal);
+  else if (s.state === "idle" && prev === "working") notify(s.name, "Finished, and waiting for you.", reveal);
 }
 
 /** Push a settlement snapshot at the map. The renderer holds no other truth. */
 function emit(s: Settlement): void {
-  announce(s);
+  announce(s, () => win?.webContents.send("focusSettlement", s.id));
   win?.webContents.send("settlement", s);
+}
+
+/**
+ * Push the whole board at the panel, and write it down.
+ *
+ * The warden lives in the board, so one push carries both a changed bounty and
+ * whatever the warden has just said. Saving here rather than only in
+ * `BoardStore.apply` is what keeps a warden turn on disk: the Governor writes
+ * straight into the record.
+ */
+function pushBoard(): void {
+  announce(board.board.warden, () => win?.webContents.send("focusBoard"));
+  board.save();
+  win?.webContents.send("board", board.board);
 }
 
 function createWindow(): void {
@@ -226,9 +254,27 @@ app.whenReady().then(() => {
   ipcMain.handle("getBoard", () => board.board);
   ipcMain.handle("boardOp", async (_e, op: BoardOp) => {
     await board.apply(op, (id) => store.settlements.get(id));
-    win?.webContents.send("board", board.board);
+    pushBoard();
     return board.board;
   });
+
+  // The warden: the board's own Claude. Not in the realm and not on the map, so
+  // nothing about starting or resuming a settlement has to know it exists.
+  warden = new Warden(
+    board,
+    () => pushBoard(),
+    () => [...store.settlements.values()],
+    () => store.defaults.model,
+    () => store.defaults.maxBudgetUsd,
+    claudeExecutable(),
+    () => sessionResetsAt.get("default") ?? null,
+  );
+
+  ipcMain.handle("wardenSend", (_e, text: string) => warden.send(text));
+  ipcMain.handle("wardenAnswerFlag", (_e, allow: boolean) => warden.answerFlag(allow));
+  ipcMain.handle("wardenInterrupt", () => warden.interrupt());
+  ipcMain.handle("wardenSetModel", (_e, model: string | null) => warden.setModel(model));
+  ipcMain.handle("wardenSetBudget", (_e, usd: number | null) => warden.setBudget(usd));
 
   /**
    * The folder name a clone URL will produce, which is what git itself would
@@ -379,7 +425,7 @@ app.whenReady().then(() => {
     sup.razed(id);
     store.settlements.delete(id);
     board.forgetSettlement(id);
-    win?.webContents.send("board", board.board);
+    pushBoard();
     lastNotifiedState.delete(id);
     store.save();
     win?.webContents.send("removed", id);
@@ -514,9 +560,15 @@ app.whenReady().then(() => {
     const budgetChanged = d.maxBudgetUsd !== store.defaults.maxBudgetUsd;
     store.defaults = { ...store.defaults, ...d };
     store.save();
-    if (modelChanged) await sup.defaultModelChanged();
+    if (modelChanged) {
+      await sup.defaultModelChanged();
+      await warden.defaultModelChanged();
+    }
     if (modeChanged) await sup.defaultModeChanged();
-    if (budgetChanged) sup.defaultBudgetChanged();
+    if (budgetChanged) {
+      sup.defaultBudgetChanged();
+      warden.defaultBudgetChanged();
+    }
   });
 
   ipcMain.handle("setBudget", (_e, id: string, usd: number | null) => sup.setBudget(id, usd));
@@ -553,6 +605,8 @@ app.whenReady().then(() => {
       k === "camp" ? store.defaults.campIdleMinutes : store.defaults.cityIdleMinutes,
     );
     for (const id of doomed) sup.reap(id);
+    // The warden is kept warm as long as a city: the board is a long project.
+    if (warden.idleFor(Date.now(), store.defaults.cityIdleMinutes)) warden.reap();
   }, 30_000);
 
   buildMenu();
@@ -577,6 +631,7 @@ app.whenReady().then(() => {
           get: (id) => store.settlements.get(id),
         });
         sup.stopAll();
+        warden.stop();
         store.save();
         app.exit(pass ? 0 : 1);
       })();
@@ -634,7 +689,9 @@ function buildMenu(): void {
 
 app.on("before-quit", () => {
   sup?.stopAll();
+  warden?.stop();
   store?.save();
+  board?.save();
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

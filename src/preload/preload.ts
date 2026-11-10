@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld("keep", {
   getBoard: () => ipcRenderer.invoke("getBoard"),
   boardOp: (op: unknown) => ipcRenderer.invoke("boardOp", op),
   onBoard: (cb: (b: unknown) => void) => ipcRenderer.on("board", (_e, b: unknown) => cb(b)),
+  wardenSend: (text: string) => ipcRenderer.invoke("wardenSend", text),
+  wardenAnswerFlag: (allow: boolean) => ipcRenderer.invoke("wardenAnswerFlag", allow),
+  wardenInterrupt: () => ipcRenderer.invoke("wardenInterrupt"),
+  wardenSetModel: (model: string | null) => ipcRenderer.invoke("wardenSetModel", model),
+  wardenSetBudget: (usd: number | null) => ipcRenderer.invoke("wardenSetBudget", usd),
+  onFocusBoard: (cb: () => void) => ipcRenderer.on("focusBoard", () => cb()),
   onFocusSettlement: (cb: (id: string) => void) =>
     ipcRenderer.on("focusSettlement", (_e, id: string) => cb(id)),
 });

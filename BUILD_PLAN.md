@@ -606,6 +606,21 @@ first; or leave it open. The answer goes into the bounty's log.
 
 **Storage.** `board.json` beside `realm.json`, written atomically. Keeping it out
 of the realm file means a board change can never cost a settlement its session.
+The warden's own session record — its transcript, its session id, what it has
+spent — is in there too, settlement-shaped so the Keep runs it with the same
+`Governor`, but never on the map and never in `realm.json`.
+
+**How the warden is built** (done, 2026-11-09). `src/main/warden.ts`. Its tools
+are an in-process MCP server (`createSdkMcpServer`) whose every handler goes
+through the same `BoardStore.apply` the panel uses, with an actor so the log
+can say the warden did it. The session is spawned with `tools: []` — no
+built-in tools at all — `settingSources: []`, a system prompt of its own, and
+`allowedTools` naming every board tool but `assign_bounty` and `close_bounty`:
+those two are left out, so they fall through to `canUseTool` and raise the
+flag. (They also carry `permission_policy: "always_ask"`, which says the same
+thing twice on purpose.) `npm run warden` is the spike that proves it against a
+real session. The warden is deliberately not in the `Supervisor`: nothing about
+starting or resuming a settlement should have to know it exists.
 
 **Build order.** The first two are panel and data work, safe to build in the
 app; the rest change how sessions start, so they are built from a terminal.
@@ -613,7 +628,7 @@ app; the rest change how sessions start, so they are built from a terminal.
 1. The panel's layer stack, moving the existing details sheet onto it. ✅
 2. Ledgers and bounties by hand: `board.json`, the three layers, moves, the log.
    Useful on its own. ✅
-3. The warden: a new kind of session, with board tools and the Keep's git check.
+3. The warden: a new kind of session, with board tools and the Keep's git check. ✅
 4. Governor tools: read granted ledgers, report a bounty fixed to the warden.
 5. The closing flag.
 

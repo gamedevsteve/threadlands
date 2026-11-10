@@ -74,20 +74,20 @@ export type ChatEntry =
   | { role: "tool"; text: string; at: number }
   | { role: "system"; text: string; at: number };
 
-export type Settlement = {
+/**
+ * One live Claude session, as the panel draws it.
+ *
+ * A settlement is one of these on a hex. The warden is one too — the board's
+ * own Claude, which has no tile and no folder of code — so the Keep runs both
+ * with the same `Governor` and the panel draws both the same way.
+ */
+export type Session = {
   id: string;
-  kind: SettlementKind;
-  /** Which of the kind's houses it was built in. Looks only; see SETTLEMENT_ART. */
-  art: SettlementArt;
   name: string;
-  hex: Hex;
-  /** The folder this settlement is scoped to. Its whole world. */
+  /** The folder this session is scoped to. Its whole world. */
   cwd: string;
-  profileId: string;
   /** Overrides the realm default. Null means follow it. */
   model: string | null;
-  /** Overrides the realm default. Null means follow it. */
-  permissionMode: PermissionModeValue | null;
   state: SettlementState;
   /** Null until the first turn completes; needed to resume after a reap. */
   sessionId: string | null;
@@ -107,10 +107,20 @@ export type Settlement = {
   windowSpentUsd: number;
   /** When the session that windowSpentUsd belongs to resets. ISO, or null. */
   windowResetsAt: string | null;
-  foundedAt: number;
   lastActiveAt: number;
-  /** Set when the governor dies, so the tile can show why. */
+  /** Set when the session dies, so the tile can show why. */
   error: string | null;
+};
+
+export type Settlement = Session & {
+  kind: SettlementKind;
+  /** Which of the kind's houses it was built in. Looks only; see SETTLEMENT_ART. */
+  art: SettlementArt;
+  hex: Hex;
+  profileId: string;
+  /** Overrides the realm default. Null means follow it. */
+  permissionMode: PermissionModeValue | null;
+  foundedAt: number;
 };
 
 /**
@@ -235,6 +245,15 @@ export type Api = {
   /** Apply a change; resolves with the board, or rejects with a reason to show. */
   boardOp(op: BoardOp): Promise<Board>;
   onBoard(cb: (b: Board) => void): void;
+  /** Talk to the warden. Spawns or resumes it, like a governor. */
+  wardenSend(text: string): Promise<void>;
+  wardenAnswerFlag(allow: boolean): Promise<void>;
+  wardenInterrupt(): Promise<void>;
+  wardenSetModel(model: string | null): Promise<void>;
+  /** Null follows the realm's ceiling. */
+  wardenSetBudget(usd: number | null): Promise<void>;
+  /** A notification about the warden was clicked: open the board. */
+  onFocusBoard(cb: () => void): void;
 };
 
 // ── the bounty board ──────────────────────────────────────────────────────────
@@ -270,7 +289,27 @@ export type Ledger = {
   createdAt: number;
 };
 
-export type Board = { ledgers: Ledger[]; bounties: Bounty[]; nextNumber: number };
+/**
+ * The warden: the board's own Claude.
+ *
+ * A session like any other — it is talked to in the board's panel, raises the
+ * same flag, and counts the same tokens — but it is not a settlement. It has no
+ * tile, no house and no code: its folder is an empty one in the realm, and the
+ * only tools it has are the board's own.
+ */
+export type Warden = Session;
+
+export type Board = {
+  ledgers: Ledger[];
+  bounties: Bounty[];
+  nextNumber: number;
+  /**
+   * Kept here rather than in realm.json, with the rest of the board. A warden
+   * turn can then never cost a settlement its session id — and the warden
+   * never has to be filtered out of the map.
+   */
+  warden: Warden;
+};
 
 /** How a bounty is referred to, on screen and to a governor. */
 export const bountyRef = (b: { number: number }): string => `B-${b.number}`;

@@ -25,6 +25,21 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   governor is retired and the next message brings it back with the new amount
   and its memory intact. A settlement that is out of budget says so instead of
   failing mid-task.
+- **The warden keeps the board.** The board's own Claude, talked to in the
+  bounty board's panel the way you talk to a governor: a message box, a budget,
+  an interrupt, and a flag when it needs you — raised on the board itself,
+  since the warden has no tile. Its world is the board and nothing else. It has
+  no shell, no files and no code; its folder is an empty one in your realm, and
+  its only tools are the board's: read the ledgers and bounties, post, edit,
+  move and comment, look over the settlements, and **check a settlement's work**
+  through git — branch, last commit, anything uncommitted, anything unpushed.
+  Brain-dump a pile of issues at it and it proposes bounties for you to agree
+  to before it posts any. **Assigning and closing ask first**, as a flag you
+  allow or decline; everything else on the board it may simply do. It never
+  messages a settlement and nothing it does starts work. The warden and its
+  transcript live in `board.json` with the rest of the board, so a warden turn
+  can never cost a settlement its session. `npm run warden` proves the lot
+  against a real session, for about ten cents.
 - **The bounty board opens.** Click it on the map, or its rail button, for
   `Bounty board › Ledger › Bounty`. Ledgers are checklists you make by hand;
   the board starts with one called *Mine*. Post a bounty with Enter, tick it

@@ -14,11 +14,13 @@ import type {
   NotifyWhen,
   PermissionModeValue,
   Realm,
+  Session,
   Settlement,
   SettlementArt,
   SettlementKind,
+  SettlementState,
 } from "../shared/types.js";
-import type { Board, BoardOp, Bounty, Ledger } from "../shared/types.js";
+import type { Board, BoardOp, Bounty, Ledger, Warden } from "../shared/types.js";
 import { bountyRef } from "../shared/types.js";
 
 type Keep = {
@@ -53,6 +55,12 @@ type Keep = {
   getBoard(): Promise<Board>;
   boardOp(op: BoardOp): Promise<Board>;
   onBoard(cb: (b: Board) => void): void;
+  wardenSend(text: string): Promise<void>;
+  wardenAnswerFlag(allow: boolean): Promise<void>;
+  wardenInterrupt(): Promise<void>;
+  wardenSetModel(model: string | null): Promise<void>;
+  wardenSetBudget(usd: number | null): Promise<void>;
+  onFocusBoard(cb: () => void): void;
 };
 const keep = (window as unknown as { keep: Keep }).keep;
 
@@ -195,7 +203,22 @@ const LAYER_LABELS: Record<string, string> = { details: "Details" };
 let entering: string | null = null;
 
 let boardOpen = false;
-let board: Board = { ledgers: [], bounties: [], nextNumber: 1 };
+/**
+ * Until the Keep hands over the real one. The warden here is a placeholder with
+ * nothing said and nothing spent, so the panel can draw before the first push.
+ */
+let board: Board = {
+  ledgers: [],
+  bounties: [],
+  nextNumber: 1,
+  warden: {
+    id: "warden", name: "The warden", cwd: "", model: null, state: "idle",
+    sessionId: null, flag: null, chat: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    costUsd: 0, maxBudgetUsd: null, windowSpentUsd: 0, windowResetsAt: null,
+    lastActiveAt: 0, error: null,
+  },
+};
 let boardLedger: string | null = null;
 let boardBounty: string | null = null;
 let boardFilter: "open" | "done" | "all" = "open";
@@ -214,6 +237,8 @@ const toastEl = document.getElementById("toast")!;
 const paletteEl = document.getElementById("palette")!;
 const inHandEl = document.getElementById("inhand")!;
 const buildBtn = document.getElementById("go-build")!;
+/** Hidden for the warden: its folder is empty, so there is nothing to open. */
+const terminalBtn = document.getElementById("terminal")!;
 
 /** The sprite a settlement draws as, whatever its stored house turns out to be. */
 function artOf(s: Settlement): SettlementArt {
@@ -335,7 +360,7 @@ function syncLayers(): void {
   }
 }
 
-function stateWordOf(s: Settlement): string {
+function stateWordOf(s: Session): string {
   return { idle: "idle", working: "working", needs_you: "needs you", dormant: "dormant · will resume", error: "error" }[s.state];
 }
 
@@ -362,7 +387,7 @@ function popLayer(depth: number): void {
 }
 
 /** The ceiling field, and how much of it this account session has used. */
-function renderBudget(s: Settlement): string {
+function renderBudget(s: Session): string {
   const ceiling = s.maxBudgetUsd ?? realm.defaults.maxBudgetUsd;
   // A session that has already reset counts as nothing spent, even before the
   // Keep gets round to zeroing it.
@@ -871,8 +896,15 @@ function drawSprite(
  * It stands to the left, and the flag flies left, so the cloth waves away from
  * the building rather than over it.
  */
-function drawFlagPole(s: Settlement, cx: number, cy: number, size: number, t: number): void {
-  const raised = s.state === "needs_you";
+function drawFlagPole(
+  state: SettlementState,
+  sprite: string,
+  cx: number,
+  cy: number,
+  size: number,
+  t: number,
+): void {
+  const raised = state === "needs_you";
   const frame = Math.floor(t / (1000 / FLAG_FPS)) % FLAG_FRAMES;
   const img = sprites[raised ? `flag-${frame}` : "flag-pole"];
   if (!img) return;
@@ -881,9 +913,9 @@ function drawFlagPole(s: Settlement, cx: number, cy: number, size: number, t: nu
   // Clear of the building's edge, and standing on the same line it stands on —
   // its own art runs to the bottom of its sprite, so that is where the ground is.
   const shaftX = cx - size * FLAG_BESIDE;
-  const ground = spriteFoot(artOf(s), cy, size) - size * FLAG_BEHIND;
+  const ground = spriteFoot(sprite, cy, size) - size * FLAG_BEHIND;
   ctx.save();
-  if (s.state === "dormant") ctx.globalAlpha = 0.62;
+  if (state === "dormant") ctx.globalAlpha = 0.62;
   ctx.drawImage(img, shaftX - w * FLAG_SHAFT, ground - h, w, h);
   ctx.restore();
 }
@@ -1036,21 +1068,34 @@ function draw(): void {
     }
   }
 
-  // The bounty board. Lit like the cottage when open or under the pointer.
+  // The bounty board. Lit like the cottage when open or under the pointer —
+  // and it carries the warden's state, since the warden is the board's own
+  // Claude and has no tile of its own to raise a flag on.
   {
     const p = hexToPixel(bountyHex(), size);
     const { x, y } = worldToScreen(p.x, p.y);
     const hovered = !!hover && hexEq(hover, bountyHex());
-    const glow: Glow[] = boardOpen
-      ? [{ colour: "#e0b050", blur: size * 0.26, passes: 4 }]
-      : hovered
-        ? [{ colour: "rgba(240,246,248,.85)", blur: size * 0.14, passes: 2 }]
-        : [];
+    const warden = board.warden.state;
+    const glow: Glow[] = [];
+    if (warden === "working") {
+      const pulse = 0.5 + 0.5 * Math.sin(t / 420);
+      glow.push({ colour: "#58c0a8", blur: size * (0.14 + 0.16 * pulse), passes: 3 });
+    } else if (warden === "needs_you") {
+      const pulse = 0.5 + 0.5 * Math.sin(t / 300);
+      glow.push({ colour: "#ff6a44", blur: size * (0.2 + 0.16 * pulse), passes: 4 });
+    } else if (warden === "error") {
+      glow.push({ colour: "#e05a3c", blur: size * 0.2, passes: 3 });
+    }
+    if (boardOpen) glow.push({ colour: "#e0b050", blur: size * 0.26, passes: 4 });
+    else if (hovered) glow.push({ colour: "rgba(240,246,248,.85)", blur: size * 0.14, passes: 2 });
+    // The warden's flag, on the board it keeps. Behind the board itself.
+    drawFlagPole(warden, "bounty-board", x, y, size, t);
     drawSprite("bounty-board", x, y, size, false, glow);
-    if (camera.zoom >= BANNER_ALL_BELOW || boardOpen || hovered) {
+    if (camera.zoom >= BANNER_ALL_BELOW || boardOpen || hovered || warden === "needs_you") {
       const foot = spriteFoot("bounty-board", y, size);
       const open = board.bounties.filter((b) => b.state !== "done").length;
-      plates.push(() => nameplate(open ? `Bounties · ${open}` : "Bounties", x, foot, "#f0dcae", "#3a2a12"));
+      const tint = warden === "needs_you" ? "#ffb08a" : "#f0dcae";
+      plates.push(() => nameplate(open ? `Bounties · ${open}` : "Bounties", x, foot, tint, "#3a2a12"));
     }
   }
 
@@ -1145,7 +1190,7 @@ function draw(): void {
       strokeHex(at.x, at.y, size, carrying.ok ? "rgba(240,246,248,.85)" : "rgba(224,90,60,.9)", 2.5);
     }
     // Behind the building, so anything that leans in is overlapped by it.
-    drawFlagPole(s, dx, dy, size, t);
+    drawFlagPole(s.state, artOf(s), dx, dy, size, t);
     drawSprite(artOf(s), dx, dy, size, s.state === "dormant", glows);
 
     // The plate carries state too: amber when it wants you, washed out when dormant.
@@ -1196,6 +1241,8 @@ function invalidate(): void {
 }
 
 function animating(): boolean {
+  // The warden's flag waves on the board, so the board animates for it too.
+  if (board.warden.state === "working" || board.warden.state === "needs_you") return true;
   for (const s of byId.values()) {
     if (s.state === "working" || s.state === "needs_you") return true;
   }
@@ -1741,12 +1788,12 @@ function renderRaze(s: Settlement): string {
  * rather than news. The run still in progress stays open, so you can watch it.
  */
 type ChatGroup =
-  | { kind: "bubble"; entry: Settlement["chat"][number] }
-  | { kind: "run"; entries: Settlement["chat"][number][]; key: string };
+  | { kind: "bubble"; entry: Session["chat"][number] }
+  | { kind: "run"; entries: Session["chat"][number][]; key: string };
 
-function groupChat(s: Settlement): ChatGroup[] {
+function groupChat(s: Session): ChatGroup[] {
   const out: ChatGroup[] = [];
-  let run: Settlement["chat"][number][] = [];
+  let run: Session["chat"][number][] = [];
   const flush = () => {
     if (run.length) {
       out.push({ kind: "run", entries: run, key: `${s.id}:${out.length}` });
@@ -1773,7 +1820,7 @@ const VERBS: Record<string, string> = {
   use: "used",
 };
 
-function runSummary(entries: Settlement["chat"][number][]): string {
+function runSummary(entries: Session["chat"][number][]): string {
   const counts = new Map<string, number>();
   let steps = 0;
   for (const e of entries) {
@@ -1787,23 +1834,26 @@ function runSummary(entries: Settlement["chat"][number][]): string {
   return `${steps} step${steps === 1 ? "" : "s"} · ${parts.join(" · ")}`;
 }
 
-function renderSettlement(s: Settlement): string {
-  const stateWord = stateWordOf(s);
-  const tk = s.tokens;
-  const total = tk.input + tk.output;
-  const flag = s.flag
-    ? `<div class="flag">
-        <h3>Needs you</h3>
-        <div class="what">${esc(s.flag.summary)}</div>
-        <div class="btns">
-          <button class="primary" id="allow">Allow</button>
-          <button class="danger" id="deny">Decline</button>
-        </div>
-      </div>`
-    : "";
+/**
+ * The raised flag. The same block for a governor and for the warden: what it
+ * wants in one line, and the two answers.
+ */
+function renderFlag(s: Session): string {
+  if (!s.flag) return "";
+  return `<div class="flag">
+      <h3>Needs you</h3>
+      <div class="what">${esc(s.flag.summary)}</div>
+      <div class="btns">
+        <button class="primary" id="allow">Allow</button>
+        <button class="danger" id="deny">Decline</button>
+      </div>
+    </div>`;
+}
 
+/** The transcript: bubbles, with the work between them folded into one line. */
+function renderChat(s: Session): string {
   const groups = groupChat(s);
-  const chat = groups
+  return groups
     .map((g, i) => {
       if (g.kind === "bubble") {
         // Both sides speak markdown. The governor gets your text exactly as
@@ -1826,6 +1876,21 @@ function renderSettlement(s: Settlement): string {
         </div>`;
     })
     .join("");
+}
+
+/** What a session has cost: the rows both a settlement and the warden show. */
+function renderSpend(s: Session): string {
+  const tk = s.tokens;
+  const total = tk.input + tk.output;
+  return `<div class="kv"><span class="k">Tokens</span><span class="v mono">${total.toLocaleString()}</span></div>
+    <div class="kv sub"><span class="k">In · Out · Cached</span><span class="v mono">${tk.input.toLocaleString()} · ${tk.output.toLocaleString()} · ${tk.cacheRead.toLocaleString()}</span></div>
+    <div class="kv"><span class="k">Spent, this conversation</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>`;
+}
+
+function renderSettlement(s: Settlement): string {
+  const stateWord = stateWordOf(s);
+  const flag = renderFlag(s);
+  const chat = renderChat(s);
 
   // Only the name is pinned. Everything else about a settlement lives behind
   // the info button, in a sheet that slides over the transcript — the details
@@ -1844,9 +1909,7 @@ function renderSettlement(s: Settlement): string {
       <div class="layer details${detailsOpen ? " open" : ""}" id="details" data-layer="details">
         <div class="kv"><span class="k">Folder</span><span class="v mono">${esc(s.cwd)}</span></div>
         <div class="kv"><span class="k">Account</span><span class="v mono">${esc(s.profileId)}</span></div>
-        <div class="kv"><span class="k">Tokens</span><span class="v mono">${total.toLocaleString()}</span></div>
-        <div class="kv sub"><span class="k">In · Out · Cached</span><span class="v mono">${tk.input.toLocaleString()} · ${tk.output.toLocaleString()} · ${tk.cacheRead.toLocaleString()}</span></div>
-        <div class="kv"><span class="k">Spent, this conversation</span><span class="v mono">$${s.costUsd.toFixed(4)}</span></div>
+        ${renderSpend(s)}
         <div class="kv"><span class="k">Founded</span><span class="v">${esc(new Date(s.foundedAt).toLocaleDateString())}</span></div>
 
         <label>Asks before acting</label>
@@ -1895,7 +1958,41 @@ function openCount(ledgerId?: string): number {
 
 function boardStatus(): string {
   const n = openCount();
-  return n ? `${n} open` : "nothing open";
+  const open = n ? `${n} open` : "nothing open";
+  const w = board.warden;
+  // The warden's state belongs here: it is the board's, and the board's header
+  // is the only place you would look for it.
+  const doing =
+    w.state === "working" ? "warden working" :
+    w.state === "needs_you" ? "warden needs you" :
+    w.state === "error" ? "warden stopped" : "";
+  return doing ? `${open} · ${doing}` : open;
+}
+
+/**
+ * The warden's own sheet: what it has cost, what it may spend, and which model
+ * it thinks with. The same fields a settlement has, minus everything about a
+ * folder — it has no code, no house and no account of its own.
+ */
+function renderWarden(w: Warden): string {
+  return `<h2>The warden</h2>
+    <p class="muted" style="margin-top:0">The board's own Claude. It can post, edit, move and comment on
+      bounties by itself; assigning and closing raise a flag for you. It never messages a settlement.</p>
+    <div class="kv"><span class="k">State</span><span class="v">${esc(stateWordOf(w))}</span></div>
+    ${renderSpend(w)}
+    <div class="kv"><span class="k">Folder</span><span class="v mono">${esc(w.cwd)}</span></div>
+    <p class="muted hint">An empty folder in your realm. The warden has no tools but the board's: no files, no shell, no code.</p>
+
+    <label>Budget ceiling (USD)</label>
+    ${renderBudget(w)}
+
+    <label>Model</label>
+    <select id="s-model">${modelOptions(
+      w.model,
+      realm.defaults.model ? `Realm default — ${modelLabel(realm.defaults.model)}` : "Realm default",
+    )}</select>
+
+    ${w.error ? `<div class="msg system">${esc(w.error)}</div>` : ""}`;
 }
 
 function settlementName(id: string | null): string {
@@ -1931,7 +2028,7 @@ function renderLedgers(): string {
     <div class="addrow">
       <input id="b-new-ledger" maxlength="80" placeholder="A new ledger… (Enter)" />
     </div>
-    <p class="muted hint">A ledger is a checklist. Share one with cities in it, or keep it to yourself.</p>`;
+    <p class="muted hint">A checklist. Grant one to cities, or keep it to yourself.</p>`;
 }
 
 function renderLedger(l: Ledger | undefined): string {
@@ -2032,35 +2129,57 @@ function renderBounty(b: Bounty | undefined): string {
 }
 
 function renderBoardPane(): void {
-  // The board re-renders whenever it changes. Carry over whatever was being
-  // typed, and where each sheet was scrolled, so nothing jumps or is lost.
+  // The board re-renders whenever it changes — and the warden changes it on
+  // every message it says. Carry over whatever was being typed, and where each
+  // sheet was scrolled, so nothing jumps or is lost.
   const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
   const typed = active && pane.contains(active) && active.id && "value" in active
     ? { id: active.id, value: active.value, start: active.selectionStart, end: active.selectionEnd }
     : null;
   const scrolls = new Map<string, number>();
   pane.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => scrolls.set(el.dataset.scroll!, el.scrollTop));
+  // Only follow the warden's new messages if you were already at the newest.
+  const chatBox = pane.querySelector<HTMLElement>("#chat.chatscroll");
+  const chatAtBottom =
+    !chatBox || chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 48;
 
   // Something open on the board may have gone: fall back to what still exists.
   if (boardLedger && !board.ledgers.some((l) => l.id === boardLedger)) { boardLedger = null; layers = []; }
   if (boardBounty && !board.bounties.some((b) => b.id === boardBounty)) { boardBounty = null; layers = layers.filter((x) => x !== "bounty"); }
 
+  const w = board.warden;
+  const detailsOpen = layers.includes("details");
   const isOpen = (id: string) => (layers.includes(id) && id !== entering ? " open" : "");
   pane.innerHTML = `<div class="shead">
       <nav class="who crumbs" id="crumbs">${crumbs("Bounty board", "", boardStatus())}</nav>
+      <button class="infobtn${detailsOpen ? " on" : ""}" id="details-toggle"
+        title="${detailsOpen ? "Hide the warden" : "The warden"}" aria-expanded="${detailsOpen}">
+        <img src="./assets/info.png" alt="The warden" />
+      </button>
     </div>
+    ${renderFlag(w)}
     <div class="chatwrap">
-      <div class="chatscroll boardsheet" data-scroll="root">${renderLedgers()}</div>
+      <div class="boardroot">
+        <div class="boardtop" data-scroll="top">${renderLedgers()}</div>
+        <div id="chat" class="chatscroll" data-scroll="chat">${renderChat(w) || '<div class="muted">Ask the warden to sort out your to-do list. Brain-dump at it and it will propose bounties before it posts any.</div>'}</div>
+      </div>
       <div class="layer${isOpen("ledger")}" data-layer="ledger" data-scroll="ledger" style="z-index: 3">${renderLedger(board.ledgers.find((l) => l.id === boardLedger))}</div>
       <div class="layer${isOpen("bounty")}" data-layer="bounty" data-scroll="bounty" style="z-index: 4">${renderBounty(board.bounties.find((b) => b.id === boardBounty))}</div>
+      <div class="layer${isOpen("details")}" data-layer="details" data-scroll="details" style="z-index: 5">${renderWarden(w)}</div>
     </div>`;
-  composer.classList.add("hidden");
+  // The board is talked to like a settlement, but there is no folder to open a
+  // terminal at: the warden's is deliberately empty.
+  composer.classList.remove("hidden");
+  promptEl.placeholder = "Talk to the warden…  (Enter sends, Shift+Enter for a new line)";
+  terminalBtn.classList.add("hidden");
   hint.textContent = "the bounty board";
 
   pane.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => {
     const top = scrolls.get(el.dataset.scroll!);
     if (top !== undefined) el.scrollTop = top;
   });
+  const chatAfter = pane.querySelector<HTMLElement>("#chat.chatscroll");
+  if (chatAfter && chatAtBottom) chatAfter.scrollTop = chatAfter.scrollHeight;
   if (typed) {
     const el = pane.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typed.id)}`);
     if (el) {
@@ -2075,6 +2194,47 @@ function renderBoardPane(): void {
 
 function bindBoard(): void {
   const $ = <T extends HTMLElement>(sel: string) => pane.querySelector<T>(sel);
+
+  // The warden
+  const w = board.warden;
+  $("#details-toggle")?.addEventListener("click", () => {
+    if (layers.includes("details")) popLayer(layers.indexOf("details"));
+    else pushLayer("details");
+  });
+  $("#allow")?.addEventListener("click", () => void keep.wardenAnswerFlag(true));
+  $("#deny")?.addEventListener("click", () => void keep.wardenAnswerFlag(false));
+  $<HTMLSelectElement>("#s-model")?.addEventListener("change", (e) => {
+    const value = (e.target as HTMLSelectElement).value || null;
+    w.model = value;
+    void keep.wardenSetModel(value);
+    toast(value ? `the warden now uses ${modelLabel(value)}` : "the warden follows the realm default");
+  });
+  $<HTMLInputElement>("#s-budget")?.addEventListener("change", (e) => {
+    const raw = (e.target as HTMLInputElement).value.trim();
+    const n = Number(raw);
+    const value = raw === "" || !Number.isFinite(n) || n < 0 ? null : n;
+    w.maxBudgetUsd = value;
+    void keep.wardenSetBudget(value);
+    render();
+    toast(value === null ? "the warden: realm default budget" : `the warden: $${value.toFixed(2)} ceiling`);
+  });
+  // The folded run of board tools between two of the warden's answers.
+  pane.querySelectorAll<HTMLButtonElement>(".runtoggle").forEach((b) =>
+    b.addEventListener("click", () => {
+      const key = b.dataset.run;
+      if (!key) return;
+      if (expandedRuns.has(key)) expandedRuns.delete(key);
+      else expandedRuns.add(key);
+      render();
+    }),
+  );
+  // A link in a reply would otherwise replace the whole app with a web page.
+  pane.querySelectorAll<HTMLAnchorElement>(".md a[href]").forEach((a) =>
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      void keep.openExternal(a.href);
+    }),
+  );
   const onEnter = (el: HTMLInputElement | HTMLTextAreaElement | null, go: (v: string) => void) =>
     el?.addEventListener("keydown", (e) => {
       const k = e as KeyboardEvent;
@@ -2204,6 +2364,10 @@ function render(): void {
     renderBoardPane();
     return;
   }
+  // Back off the board: the message box is a governor's again, and there is a
+  // folder to open a terminal at.
+  promptEl.placeholder = "Talk to the governor…  (Enter sends, Shift+Enter for a new line)";
+  terminalBtn.classList.remove("hidden");
 
   if (cottageOpen) {
     pane.innerHTML = renderCottage();
@@ -2525,9 +2689,20 @@ async function refreshBudgets(): Promise<void> {
 // ── composer ──────────────────────────────────────────────────────────────────
 
 async function sendPrompt(): Promise<void> {
-  const s = selected ? byId.get(selected) : null;
   const text = promptEl.value.trim();
-  if (!s || !text) return;
+  if (!text) return;
+  // Whoever the panel is open on. The board's own Claude is the warden.
+  if (boardOpen) {
+    promptEl.value = "";
+    try {
+      await keep.wardenSend(text);
+    } catch (e) {
+      toast(String((e as Error)?.message ?? e));
+    }
+    return;
+  }
+  const s = selected ? byId.get(selected) : null;
+  if (!s) return;
   promptEl.value = "";
   try {
     await keep.send(s.id, text);
@@ -2667,11 +2842,12 @@ const setZoomLabel = (big: boolean) => { zoomWin.textContent = big ? "Restore" :
 zoomWin.addEventListener("click", async () => setZoomLabel(await keep.toggleMaximize()));
 keep.onWindowState(setZoomLabel);
 
-document.getElementById("terminal")!.addEventListener("click", () => {
+terminalBtn.addEventListener("click", () => {
   if (selected) void keep.openTerminal(selected);
 });
 document.getElementById("stop")!.addEventListener("click", () => {
-  if (selected) void keep.interrupt(selected);
+  if (boardOpen) void keep.wardenInterrupt();
+  else if (selected) void keep.interrupt(selected);
 });
 
 // ── boot ──────────────────────────────────────────────────────────────────────
@@ -2695,6 +2871,15 @@ keep.onFocusSettlement((id) => {
   const p = hexToPixel(s.hex, hexSize());
   flyTo(-p.x, -p.y);
   render();
+});
+
+keep.onFocusBoard(() => {
+  // A notification about the warden, clicked. Bring the board into view and
+  // open it, the way focusing a settlement does.
+  const p = hexToPixel(bountyHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, BOUNTY_ZOOM);
+  setBuilding(null);
+  openBoard();
 });
 
 keep.onModels((m) => {
@@ -2808,6 +2993,10 @@ window.addEventListener("resize", () => {
   palette: () => buildBtn.click(),
   /** The renderer's own copy of a settlement — mutate it to stage a view. */
   get: (id?: string) => byId.get(id ?? selected ?? [...byId.keys()][0] ?? ""),
+  /** The same for the board and its warden, and a way to redraw after staging. */
+  board: () => board,
+  warden: () => board.warden,
+  redraw: () => render(),
   zoom: (z: number) => { camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)); },
   /** Average milliseconds per draw, for finding what a frame is spending on. */
   benchDraw(n = 40) {

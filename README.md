@@ -104,6 +104,16 @@ exits non-zero if any check fails. **It spends real tokens** (about $0.20).
   ✓ tokens counted
 ```
 
+```bash
+npm run warden
+```
+
+Puts the real warden (below) in front of a real session in a scratch realm, and
+checks the four things only a live session can show: that it has the board's
+tools and nothing else, that they reach the board, that posting needs no
+permission, and that assigning raises a flag the answer decides. **It spends
+real tokens** (about $0.06).
+
 `npm run usage` prints what the signed-in account has left, without spending
 anything.
 
@@ -112,6 +122,8 @@ anything.
 ```
 src/main/        the Keep — owns every session; the renderer never sees the SDK
   supervisor.ts  one Governor per settlement, and the three lifecycle traps
+  board.ts       the bounty board, in board.json beside the realm
+  warden.ts      the board's own Claude, and the board tools it works through
   realm.ts       the realm file in userData
   usage.ts       the free budget probe behind the cottage panel
   selftest.ts    the end-to-end check
@@ -208,13 +220,37 @@ before parsing: marked escapes code itself, so doing it first double-escaped
 anything in backticks (`~> 6.0` showed as `~&gt; 6.0`). Links open in the
 system browser rather than navigating the app away.
 
+### The bounty board, and the warden
+
+The board stands west of the cottage. Ledgers are checklists you make by hand;
+a bounty is one item on one of them, with an id — `B-12` — that is never
+reused, so you can name it to a governor. Assigning records who a bounty is
+for and nothing more: nothing is sent, and nothing starts work. It is all in
+`board.json`, beside `realm.json` rather than in it, so a change to the board
+can never cost a settlement its session id.
+
+**The warden** is the board's own Claude, and you talk to it in the board's
+panel the way you talk to a governor. Its world is the board: no shell, no
+files, no code. Its folder is an empty one in your realm, and its only tools
+are the board's own — the ledgers, the bounties, the settlements it can name,
+and `check_work`, which asks git in a settlement's folder for its branch, its
+last commit, anything uncommitted and anything unpushed. That is the whole of
+what it can see of anyone's work.
+
+Brain-dump at it and it proposes bounties for you to agree to before it posts
+any. It may post, edit, move and comment on its own. **Assigning and closing
+ask you first** — a flag, raised on the board rather than on a tile, since the
+warden has no tile of its own. The mechanism is the one governors use: those
+two tools are kept out of `allowedTools` so they fall through to `canUseTool`.
+Nothing the warden does ever messages a settlement.
+
 ### Notifications
 
-A settlement raises a system notification when it **needs your guidance** (a
-flag went up) and when it **has gone idle** (it finished what it was doing).
-Clicking one focuses Threadlands, selects that settlement and pans the map to
-it. The cottage sets when they fire: in the background only (the default),
-always, or never.
+A settlement — and the warden — raises a system notification when it **needs
+your guidance** (a flag went up) and when it **has gone idle** (it finished
+what it was doing). Clicking one focuses Threadlands and pans the map to that
+settlement, or opens the board if it was the warden. The cottage sets when they
+fire: in the background only (the default), always, or never.
 
 They fire on the *transition*, not the state — a settlement emits many times
 while it works and only one of those is the moment it changed.
@@ -274,4 +310,6 @@ comes up "Not logged in". The default profile must leave it unset.
 
 Walls, libraries, trade routes, messengers, many workers per settlement, and
 per-settlement accounts beyond the default profile. The map, the Keep, the flag,
-the reaper and the cottage are done. See `BUILD_PLAN.md` phases 5 and 6.
+the reaper, the cottage and the bounty board are done. Governors cannot read a
+ledger they have been granted yet, and cannot report a bounty fixed to the
+warden — that is the next step on the board. See `BUILD_PLAN.md` phases 5 and 6.

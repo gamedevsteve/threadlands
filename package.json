@@ -9,6 +9,7 @@
     "dev": "node build.mjs --watch & electron .",
     "typecheck": "tsc --noEmit",
     "spike": "tsx spike/phase0.ts",
+    "warden": "tsx spike/warden.ts",
     "usage": "tsx spike/usage-probe.ts",
     "selftest": "npm run build && THREADLANDS_SELFTEST=./selftest electron .",
     "assets": "python3 tools/prep_assets.py",
@@ -18,7 +19,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.312",
-    "marked": "^18.1.2"
+    "marked": "^18.1.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

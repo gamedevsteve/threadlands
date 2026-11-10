@@ -6,16 +6,50 @@
  */
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Board, BoardOp, Bounty, Settlement } from "../shared/types.js";
+import type { Board, BoardOp, Bounty, Settlement, Warden } from "../shared/types.js";
+
+/** Transcripts are capped on disk; the SDK's own session history is the archive. */
+const CHAT_KEPT_ON_DISK = 200;
+
+/**
+ * The warden, before it has ever been spoken to.
+ *
+ * `id` is a fixed word rather than a uuid: there is exactly one warden, the
+ * renderer refers to it by name, and it must never read as a settlement.
+ */
+function freshWarden(cwd: string): Warden {
+  return {
+    id: "warden",
+    name: "The warden",
+    cwd,
+    model: null,
+    state: "idle",
+    sessionId: null,
+    flag: null,
+    chat: [],
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    costUsd: 0,
+    maxBudgetUsd: null,
+    windowSpentUsd: 0,
+    windowResetsAt: null,
+    lastActiveAt: Date.now(),
+    error: null,
+  };
+}
 
 export class BoardStore {
   private readonly file: string;
-  board: Board = { ledgers: [], bounties: [], nextNumber: 1 };
+  /** The empty folder the warden runs in: no code, nothing to read. */
+  readonly wardenCwd: string;
+  board: Board;
 
   constructor(dir: string) {
     this.file = join(dir, "board.json");
+    this.wardenCwd = join(dir, "warden");
+    mkdirSync(this.wardenCwd, { recursive: true });
+    this.board = { ledgers: [], bounties: [], nextNumber: 1, warden: freshWarden(this.wardenCwd) };
     this.load();
   }
 
@@ -23,7 +57,19 @@ export class BoardStore {
     if (existsSync(this.file)) {
       try {
         const raw = JSON.parse(readFileSync(this.file, "utf8")) as Partial<Board>;
-        this.board = { ledgers: raw.ledgers ?? [], bounties: raw.bounties ?? [], nextNumber: raw.nextNumber ?? 1 };
+        this.board = {
+          ledgers: raw.ledgers ?? [],
+          bounties: raw.bounties ?? [],
+          nextNumber: raw.nextNumber ?? 1,
+          // A board written before the warden existed simply has none.
+          warden: { ...freshWarden(this.wardenCwd), ...(raw.warden ?? {}) },
+        };
+        // Nothing is running at boot: a live state on disk is always a lie.
+        const w = this.board.warden;
+        w.id = "warden";
+        w.cwd = this.wardenCwd;
+        w.state = w.sessionId ? "dormant" : "idle";
+        w.flag = null;
         // Bounties from before numbers existed get them now, oldest first.
         const unnumbered = this.board.bounties.filter((b) => !b.number).sort((a, b) => a.createdAt - b.createdAt);
         for (const b of unnumbered) b.number = this.board.nextNumber++;
@@ -42,8 +88,12 @@ export class BoardStore {
   }
 
   save(): void {
+    const onDisk: Board = {
+      ...this.board,
+      warden: { ...this.board.warden, chat: this.board.warden.chat.slice(-CHAT_KEPT_ON_DISK) },
+    };
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.board, null, 2));
+    writeFileSync(tmp, JSON.stringify(onDisk, null, 2));
     renameSync(tmp, this.file);
   }
 
@@ -68,8 +118,15 @@ export class BoardStore {
   /**
    * Apply one change. Throws with a reason fit to show if it cannot be done.
    * Nothing here ever messages a settlement: you do that yourself, by its id.
+   *
+   * `actor` is who asked — you, at the panel, or the warden through its tools.
+   * A comment is signed with it; the entries the board writes itself say so.
    */
-  async apply(op: BoardOp, settlement: (id: string) => Settlement | undefined): Promise<void> {
+  async apply(
+    op: BoardOp,
+    settlement: (id: string) => Settlement | undefined,
+    actor: "you" | "warden" = "you",
+  ): Promise<void> {
     const b = this.board;
     const ledger = (id: string) => {
       const l = b.ledgers.find((x) => x.id === id);
@@ -81,8 +138,11 @@ export class BoardStore {
       if (!x) throw new Error("That bounty is gone.");
       return x;
     };
-    const note = (x: Bounty, text: string, who: "you" | "board" = "board") =>
+    const note = (x: Bounty, text: string, who: "you" | "warden" | "board" = "board") =>
       x.log.push({ at: Date.now(), who, text });
+    // The board's own entries name the warden when it was the warden's doing;
+    // yours need no byline, because the board is yours.
+    const by = actor === "warden" ? " by the warden" : "";
     const clean = (s: string, what: string) => {
       const t = s.trim();
       if (!t) throw new Error(`A ${what} needs a name.`);
@@ -113,7 +173,7 @@ export class BoardStore {
           state: "open", assignee: null, branch: null, commit: null, log: [],
           createdAt: Date.now(), doneAt: null,
         };
-        note(x, "Posted.");
+        note(x, `Posted${by}.`);
         b.bounties.push(x);
         break;
       }
@@ -129,7 +189,7 @@ export class BoardStore {
         const from = ledger(x.ledgerId).name;
         const to = ledger(op.ledgerId).name;
         x.ledgerId = op.ledgerId;
-        note(x, `Moved from ${from} to ${to}.`);
+        note(x, `Moved from ${from} to ${to}${by}.`);
         break;
       }
       case "assign": {
@@ -139,14 +199,14 @@ export class BoardStore {
           const was = x.assignee ? settlement(x.assignee)?.name ?? "its settlement" : "nobody";
           x.assignee = null;
           if (x.state === "assigned") x.state = "open";
-          note(x, `Unassigned from ${was}.`);
+          note(x, `Unassigned from ${was}${by}.`);
           break;
         }
         const s = settlement(op.settlementId);
         if (!s) throw new Error("That settlement is gone.");
         x.assignee = s.id;
         if (x.state === "open") x.state = "assigned";
-        note(x, `Assigned to ${s.name}.`);
+        note(x, `Assigned to ${s.name}${by}.`);
         break;
       }
       case "setDone": {
@@ -159,18 +219,18 @@ export class BoardStore {
           x.commit = where?.commit ?? null;
           x.state = "done";
           x.doneAt = Date.now();
-          note(x, where ? `Done, on ${where.branch} at ${where.commit}${where.dirty ? ", with uncommitted changes" : ""}.` : "Done.");
+          note(x, where ? `Done${by}, on ${where.branch} at ${where.commit}${where.dirty ? ", with uncommitted changes" : ""}.` : `Done${by}.`);
         } else {
           x.state = x.assignee ? "assigned" : "open";
           x.doneAt = null;
-          note(x, "Opened again.");
+          note(x, `Opened again${by}.`);
         }
         break;
       }
       case "comment": {
         const t = op.text.trim();
         if (!t) return;
-        note(bounty(op.id), t.slice(0, 20_000), "you");
+        note(bounty(op.id), t.slice(0, 20_000), actor);
         break;
       }
       case "deleteBounty":
@@ -182,17 +242,65 @@ export class BoardStore {
   }
 }
 
+/** One git command in a folder, or null if it failed. Never throws. */
+function git(cwd: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile("git", ["-C", cwd, ...args], { timeout: 5000, maxBuffer: 2 * 1024 * 1024 }, (err, out) =>
+      resolve(err ? null : out.trim()),
+    );
+  });
+}
+
 /** Branch, short commit and whether the tree is dirty, or null if it is not a git repo. */
 function gitWhere(cwd: string): Promise<{ branch: string; commit: string; dirty: boolean } | null> {
-  const git = (args: string[]) =>
-    new Promise<string | null>((resolve) => {
-      execFile("git", ["-C", cwd, ...args], { timeout: 5000 }, (err, out) => resolve(err ? null : out.trim()));
-    });
   return Promise.all([
-    git(["rev-parse", "--abbrev-ref", "HEAD"]),
-    git(["rev-parse", "--short", "HEAD"]),
-    git(["status", "--porcelain"]),
+    git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    git(cwd, ["rev-parse", "--short", "HEAD"]),
+    git(cwd, ["status", "--porcelain"]),
   ]).then(([branch, commit, status]) =>
     branch && commit ? { branch, commit, dirty: !!status } : null,
   );
+}
+
+/** What the Keep can see of a settlement's work, without reading any code. */
+export type GitReport = {
+  repo: boolean;
+  branch: string | null;
+  lastCommit: string | null;
+  /** Paths with uncommitted changes, capped — the count is what matters. */
+  uncommitted: string[];
+  uncommittedCount: number;
+  /** One line per commit ahead of the upstream branch. */
+  unpushed: string[];
+  /** Null when the branch has no upstream at all: nothing has ever been pushed. */
+  upstream: string | null;
+};
+
+/**
+ * Look at a settlement's folder through git, for the warden.
+ *
+ * This is the whole of the warden's view of anybody's work: it never reads a
+ * file, and nothing here can change the folder. Read-only git commands only.
+ */
+export async function gitReport(cwd: string): Promise<GitReport> {
+  const [branch, lastCommit, status, upstream] = await Promise.all([
+    git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    git(cwd, ["log", "-1", "--format=%h %s (%cr)"]),
+    git(cwd, ["status", "--porcelain"]),
+    git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]),
+  ]);
+  if (!branch) return { repo: false, branch: null, lastCommit: null, uncommitted: [], uncommittedCount: 0, unpushed: [], upstream: null };
+  const lines = (status ?? "").split("\n").filter(Boolean);
+  const unpushed = upstream
+    ? ((await git(cwd, ["log", "--format=%h %s", `${upstream}..HEAD`])) ?? "").split("\n").filter(Boolean)
+    : [];
+  return {
+    repo: true,
+    branch,
+    lastCommit,
+    uncommitted: lines.slice(0, 40).map((l) => l.trim()),
+    uncommittedCount: lines.length,
+    unpushed: unpushed.slice(0, 40),
+    upstream,
+  };
 }

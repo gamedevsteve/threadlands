@@ -15,6 +15,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   CanUseTool,
+  Options,
   PermissionResult,
   Query,
   SDKMessage,
@@ -24,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import type {
   PendingFlag,
   PermissionModeValue,
+  Session,
   Settlement,
   SettlementKind,
 } from "../shared/types.js";
@@ -62,7 +64,7 @@ function createInputStream() {
 }
 
 /** A short, human line about a tool call, so the map never parses tool input. */
-function summarise(toolName: string, input: unknown): string {
+export function summarise(toolName: string, input: unknown): string {
   const i = (input ?? {}) as Record<string, unknown>;
   const path = typeof i.file_path === "string" ? i.file_path : undefined;
   switch (toolName) {
@@ -89,7 +91,7 @@ export type SupervisorEvents = {
 };
 
 export class Supervisor {
-  private governors = new Map<string, Governor>();
+  private governors = new Map<string, Governor<Settlement>>();
 
   constructor(
     private readonly settlements: Map<string, Settlement>,
@@ -321,8 +323,28 @@ function overBudget(s: Settlement, ceiling: number): string {
     `${resets} Or raise the ceiling in this settlement's details, then send your message again.`;
 }
 
-/** One live session. Spawns lazily, resumes when it has a sessionId. */
-class Governor {
+/**
+ * What a session is given beyond the realm's defaults.
+ *
+ * The warden is the reason this exists: it is a Governor like any other, but
+ * its world is the board rather than a folder of code, so it hands in its own
+ * tools, its own system prompt, and its own way of putting a tool call into
+ * one line for the flag.
+ */
+export type GovernorExtras = {
+  /** Merged into the query's options, last. */
+  options?: Partial<Options>;
+  /** Overrides the default one-liner for a tool call. */
+  summarise?: (toolName: string, input: unknown) => string;
+};
+
+/**
+ * One live session. Spawns lazily, resumes when it has a sessionId.
+ *
+ * Generic over what it is driving so the caller gets its own record back from
+ * `emit` — a Settlement for the map, the Warden for the board.
+ */
+export class Governor<S extends Session = Session> {
   private q: Query | null = null;
   private input = createInputStream();
   private pending: ((r: PermissionResult) => void) | null = null;
@@ -335,8 +357,8 @@ class Governor {
   private lastTotal: number;
 
   constructor(
-    private readonly s: Settlement,
-    private readonly emit: (s: Settlement) => void,
+    private readonly s: S,
+    private readonly emit: (s: S) => void,
     private readonly configDir: string | null,
     private readonly maxBudgetUsd: number,
     private model: string | null,
@@ -344,8 +366,14 @@ class Governor {
     private readonly executable: string | undefined,
     private readonly onTurnEnd: (subtype: string) => void,
     private readonly onSpend: (deltaUsd: number) => void,
+    private readonly extras: GovernorExtras = {},
   ) {
     this.lastTotal = s.sessionId ? s.costUsd : 0;
+  }
+
+  /** The one line the flag shows. Board tools need their own; see the warden. */
+  private describe(toolName: string, input: unknown): string {
+    return (this.extras.summarise ?? summarise)(toolName, input);
   }
 
   push(text: string): void {
@@ -359,7 +387,7 @@ class Governor {
         id: randomUUID(),
         toolName,
         input,
-        summary: summarise(toolName, input),
+        summary: this.describe(toolName, input),
         raisedAt: Date.now(),
       };
       this.s.flag = flag;
@@ -414,6 +442,8 @@ class Governor {
         // Only override the config dir for a named profile. See realm.profileDir.
         ...(this.configDir ? { env: { ...process.env, CLAUDE_CONFIG_DIR: this.configDir } } : {}),
         includePartialMessages: false,
+        // Last, so a session with a world of its own can replace any of these.
+        ...(this.extras.options ?? {}),
       },
     }) as Query;
 
@@ -450,7 +480,7 @@ class Governor {
           ? msg.message.content.filter((b: any) => b?.type === "tool_use")
           : [];
         for (const c of calls as any[]) {
-          s.chat.push({ role: "tool", text: summarise(c.name, c.input), at: Date.now() });
+          s.chat.push({ role: "tool", text: this.describe(c.name, c.input), at: Date.now() });
         }
         s.lastActiveAt = Date.now();
         this.emit(s);
