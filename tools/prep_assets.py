@@ -501,7 +501,7 @@ def prepare_icon(size: int = 1024) -> None:
 
 # UI buttons. Each arrives as framed art on an opaque black square, so each is
 # cropped to its content and cut to the same squircle as the app icon.
-UI_ICONS = ["info", "home", "blank", "build", "bounty"]
+UI_ICONS = ["info", "home", "blank", "build", "bounty", "mail"]
 
 
 def prepare_ui_icons(size: int = 128) -> None:

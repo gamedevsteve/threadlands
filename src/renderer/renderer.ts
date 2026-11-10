@@ -2923,6 +2923,14 @@ document.getElementById("go-bounty")!.addEventListener("click", () => {
   openBoard();
 });
 
+// The rookery is not open yet, so its button only takes you there.
+document.getElementById("go-rookery")!.addEventListener("click", () => {
+  const p = hexToPixel(rookeryHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, BOUNTY_ZOOM);
+  setBuilding(null);
+  toast("The rookery isn't open yet. Messengers will fly from here.");
+});
+
 const zoomWin = document.getElementById("zoomwin") as HTMLButtonElement;
 const setZoomLabel = (big: boolean) => { zoomWin.textContent = big ? "Restore" : "Fill screen"; };
 zoomWin.addEventListener("click", async () => setZoomLabel(await keep.toggleMaximize()));
