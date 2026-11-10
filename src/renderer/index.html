@@ -435,12 +435,19 @@
   .bid { flex: none; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--dim); }
   .bid.big { font-size: 15px; color: var(--accent); font-weight: 600; }
   .bidrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-  .grants { display: flex; flex-direction: column; gap: 3px; }
-  aside label.grant {
-    display: flex; align-items: center; gap: 7px; margin: 0;
-    text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--ink);
+  /* One city per row: name, kind, and an × to take it off. */
+  .grants { display: flex; flex-direction: column; margin-bottom: 6px; }
+  .grant {
+    display: flex; align-items: center; gap: 8px; padding: 4px 0;
+    border-bottom: 1px solid rgba(94, 72, 38, .16); white-space: nowrap;
   }
-  label.grant input { margin: 0; accent-color: var(--accent); }
+  .grant .gname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .grant .muted { flex: none; font-size: 11px; }
+  aside .grant .ungrant {
+    flex: none; width: 22px; height: 22px; padding: 0; line-height: 1;
+    border: 0; background: none; color: var(--dim); font-size: 16px; cursor: pointer;
+  }
+  aside .grant .ungrant:hover { color: var(--flag); background: none; }
   .blog { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
   .logline { padding: 6px 9px; border-radius: 7px; background: rgba(255, 250, 238, .55); }
   .logline.you { background: rgba(138, 100, 16, .14); }

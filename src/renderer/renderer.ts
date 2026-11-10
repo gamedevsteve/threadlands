@@ -1948,17 +1948,33 @@ function renderLedger(l: Ledger | undefined): string {
     .join("");
   const seg = (v: typeof boardFilter, label: string) =>
     `<button data-filter="${v}" class="${boardFilter === v ? "on" : ""}">${label}</button>`;
-  const cities = [...byId.values()]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((s) => `<label class="grant"><input type="checkbox" data-grant="${esc(s.id)}" ${l.grants.includes(s.id) ? "checked" : ""} /> ${esc(s.name)} <span class="muted">${esc(s.kind)}</span></label>`)
+  // Only the cities that can read it are listed; the rest wait in the select.
+  const readers = l.grants
+    .map((id) => byId.get(id))
+    .filter((s): s is Settlement => !!s)
+    .map((s) => `<div class="grant">
+        <span class="gname">${esc(s.name)}</span>
+        <span class="muted">${esc(s.kind)}</span>
+        <button class="ungrant" data-ungrant="${esc(s.id)}" title="Stop ${esc(s.name)} reading this ledger" aria-label="Remove">×</button>
+      </div>`)
     .join("");
+  const others = [...byId.values()]
+    .filter((s) => !l.grants.includes(s.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const addSelect = others.length
+    ? `<select id="b-grant-add">
+        <option value="">Add a city…</option>
+        ${others.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} · ${esc(s.kind)}</option>`).join("")}
+      </select>`
+    : "";
   return `<div class="seg" id="b-filter">${seg("open", `Open · ${openCount(l.id)}`)}${seg("done", "Done")}${seg("all", "All")}</div>
     <div class="addrow"><input id="b-new-bounty" maxlength="200" placeholder="Post a bounty… (Enter)" /></div>
     <ul class="checklist">${items || `<li class="muted">${boardFilter === "done" ? "Nothing done yet." : "Nothing here."}</li>`}</ul>
 
     <label>Read by</label>
-    <div class="grants">${cities || '<span class="muted">No settlements yet.</span>'}</div>
-    <p class="muted hint">Cities ticked here will be able to read this ledger once governors have board tools. None ticked: yours alone.</p>
+    <div class="grants">${readers || '<div class="muted">Nobody: this ledger is yours alone.</div>'}</div>
+    ${addSelect}
+    <p class="muted hint">They will be able to read it once governors have board tools.</p>
 
     <label>Ledger name</label>
     <input id="b-ledger-name" maxlength="80" value="${esc(l.name)}" />
@@ -2100,11 +2116,13 @@ function bindBoard(): void {
       pushLayer("bounty");
     }),
   );
-  pane.querySelectorAll<HTMLInputElement>("[data-grant]").forEach((c) =>
-    c.addEventListener("change", () => {
-      if (!l) return;
-      const grants = [...pane.querySelectorAll<HTMLInputElement>("[data-grant]")].filter((x) => x.checked).map((x) => x.dataset.grant!);
-      void boardDo({ op: "setGrants", id: l.id, grants });
+  $<HTMLSelectElement>("#b-grant-add")?.addEventListener("change", (e) => {
+    const id = (e.target as HTMLSelectElement).value;
+    if (l && id) void boardDo({ op: "setGrants", id: l.id, grants: [...l.grants, id] });
+  });
+  pane.querySelectorAll<HTMLButtonElement>("[data-ungrant]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (l) void boardDo({ op: "setGrants", id: l.id, grants: l.grants.filter((g) => g !== b.dataset.ungrant) });
     }),
   );
   $<HTMLInputElement>("#b-ledger-name")?.addEventListener("change", (e) => {
