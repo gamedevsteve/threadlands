@@ -123,9 +123,13 @@ function emit(s: Settlement): void {
 }
 
 function createWindow(): void {
+  // A screenshot run never shows its window: it is captured from its own
+  // contents, so it never comes in front of whatever you are working on.
+  const shooting = !!process.env.THREADLANDS_SHOT;
   win = new BrowserWindow({
     width: 1400,
     height: 900,
+    ...(shooting ? { show: false, focusable: false } : {}),
     backgroundColor: "#1b2a30",
     ...(process.platform === "linux" ? { icon: join(here, "assets", "appicon.png") } : {}),
     titleBarStyle: "hiddenInset",
@@ -185,6 +189,12 @@ function openTerminalAt(cwd: string): void {
       if (err) shell.openPath(cwd);
     });
   }
+}
+
+// A screenshot run is a background process: no Dock icon, no menu bar, and it
+// never becomes the active app. Set before ready, or macOS activates it anyway.
+if (process.env.THREADLANDS_SHOT && process.platform === "darwin") {
+  app.setActivationPolicy("accessory");
 }
 
 app.whenReady().then(() => {

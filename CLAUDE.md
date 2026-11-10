@@ -79,7 +79,8 @@ The order:
 You can't see the user's screen, but you can see the app. `tools/shot.sh
 out.png '<js>'` runs a scratch copy against a copy of the realm, runs the JS in
 the page (click things, wait, return something), and saves a PNG of the window.
-Read the PNG. It spends nothing and never touches the real realm. Do this after
+Read the PNG. It spends nothing, never touches the real realm, and never shows
+a window or takes focus: the user works in other apps while you run it. Do this after
 any change to the panel or the map, before telling the user it's done: a style
 change can look right in code and wrong on screen. `sips -Z 1400` shrinks a
 shot before reading it. Example, opening the board's first ledger:

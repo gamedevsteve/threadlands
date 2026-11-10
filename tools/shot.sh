@@ -6,7 +6,8 @@
 # Builds, copies the realm into a scratch folder, runs a dev copy pointed at it
 # (THREADLANDS_DATA), runs the optional JS in the page, captures the window's
 # own contents (not the screen, so displays and screen-recording permission
-# don't matter) and quits. No settlement is woken, so nothing is spent.
+# don't matter) and quits. No settlement is woken, so nothing is spent. The
+# window is never shown and the app never activates, so it steals no focus.
 set -e
 out=${1:?usage: tools/shot.sh out.png [js]}
 cd "${0:A:h}/.."
