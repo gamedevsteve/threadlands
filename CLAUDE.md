@@ -74,6 +74,22 @@ The order:
    summarise what changed and carry on. Don't assume the code is still as you
    last saw it.
 
+## Seeing the app
+
+You can't see the user's screen, but you can see the app. `tools/shot.sh
+out.png '<js>'` runs a scratch copy against a copy of the realm, runs the JS in
+the page (click things, wait, return something), and saves a PNG of the window.
+Read the PNG. It spends nothing and never touches the real realm. Do this after
+any change to the panel or the map, before telling the user it's done: a style
+change can look right in code and wrong on screen. `sips -Z 1400` shrinks a
+shot before reading it. Example, opening the board's first ledger:
+
+```bash
+tools/shot.sh /tmp/board.png '(async () => { const w = (ms) => new Promise((r) => setTimeout(r, ms));
+  document.getElementById("go-bounty").click(); await w(700);
+  document.querySelector(".ledgerrow").click(); await w(700); })()'
+```
+
 ## Pitfalls
 
 See "Things that will bite you" in README.md: never use `for await … break`

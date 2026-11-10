@@ -37,7 +37,9 @@ const here = dirname(fileURLToPath(import.meta.url));
  * Renaming also moves app.getPath("userData"), which would strand an existing
  * realm, so the data path is pinned to where it has always been.
  */
-app.setPath("userData", join(app.getPath("appData"), "threadlands"));
+app.setPath("userData", process.env.THREADLANDS_DATA || join(app.getPath("appData"), "threadlands"));
+// THREADLANDS_DATA points a dev copy at a scratch folder instead, so it can run
+// beside the installed app without both writing the same realm.
 app.setName("Threadlands");
 // Windows groups notifications by this; without it they show as unattributed.
 app.setAppUserModelId("com.hatfieldmedia.threadlands");

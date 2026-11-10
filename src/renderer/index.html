@@ -321,6 +321,8 @@
   .crumbs .crumb b { font-size: 15px; }
   .crumbs .crumb:not(:last-of-type) b { font-size: 13px; font-weight: 600; }
   .crumbs .sep { color: var(--dim); flex: none; }
+  /* Earlier crumbs keep their size; only the last one gives way. */
+  .crumbs .crumb:not(:last-of-type) { flex: none; }
   .crumbs > .crumb:not(:first-child) { font-size: 13px; }
 
   .infobtn {

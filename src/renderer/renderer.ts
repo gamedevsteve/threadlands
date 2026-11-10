@@ -297,7 +297,9 @@ function layerLabel(id: string): string {
   if (id === "ledger") return board.ledgers.find((l) => l.id === boardLedger)?.name ?? "Ledger";
   if (id === "bounty") {
     const b = board.bounties.find((x) => x.id === boardBounty);
-    return b ? `${bountyRef(b)} ${b.title}` : "Bounty";
+    // Just the id: the title is the first thing on the sheet below, and a long
+    // one would squeeze every crumb before it.
+    return b ? bountyRef(b) : "Bounty";
   }
   return LAYER_LABELS[id] ?? id;
 }
@@ -2005,7 +2007,7 @@ function renderBounty(b: Bounty | undefined): string {
       <button id="b-copy" title="Copy its id, title and notes, to hand to a governor">Copy</button>
     </div>
     <label>Bounty</label>
-    <input id="b-title" maxlength="200" value="${esc(b.title)}" />
+    <textarea id="b-title" rows="2" maxlength="200">${esc(b.title)}</textarea>
     <label>Notes</label>
     <textarea id="b-notes" rows="4" placeholder="What it is, where to look, how to know it is done.">${esc(b.notes)}</textarea>
 
@@ -2139,8 +2141,11 @@ function bindBoard(): void {
   // A bounty
   const b = board.bounties.find((x) => x.id === boardBounty);
   if (!b) return;
-  $<HTMLInputElement>("#b-title")?.addEventListener("change", (e) =>
-    void boardDo({ op: "editBounty", id: b.id, title: (e.target as HTMLInputElement).value }));
+  const titleBox = $<HTMLTextAreaElement>("#b-title");
+  // A title is one line: Enter saves rather than breaking it.
+  titleBox?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); titleBox.blur(); } });
+  titleBox?.addEventListener("change", () =>
+    void boardDo({ op: "editBounty", id: b.id, title: titleBox.value.replace(/\s*\n\s*/g, " ") }));
   $<HTMLTextAreaElement>("#b-notes")?.addEventListener("change", (e) =>
     void boardDo({ op: "editBounty", id: b.id, notes: (e.target as HTMLTextAreaElement).value }));
   $<HTMLSelectElement>("#b-assign")?.addEventListener("change", async (e) => {
