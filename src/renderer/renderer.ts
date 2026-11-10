@@ -71,10 +71,10 @@ const MAP_RADIUS = 14;        // rings of hexes from the cottage
  */
 const BOUNTY_OFFSET = { q: -6, r: 3 };
 /**
- * The rookery, where messengers will fly from: two rings out, down and to the
- * right of the cottage. Not working yet; it stands, and says so.
+ * The rookery, where messengers will fly from: up and to the right of the
+ * cottage, at q 2, r -4. Not working yet; it stands, and says so.
  */
-const ROOKERY_OFFSET = { q: 2, r: 4 };
+const ROOKERY_OFFSET = { q: 2, r: -4 };
 function rookeryHex(): { q: number; r: number } {
   return { q: realm.cottageHex.q + ROOKERY_OFFSET.q, r: realm.cottageHex.r + ROOKERY_OFFSET.r };
 }

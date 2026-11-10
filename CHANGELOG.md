@@ -13,7 +13,7 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
-- **The rookery** stands at q 2, r 4, where messengers will fly from. Not
+- **The rookery** stands at q 2, r −4, where messengers will fly from. Not
   open yet: its plate says *soon*, a click says so, and it is listed as planned
   under the realm. Its art arrived with a transparency checkerboard painted in,
   which `key_checkerboard` in the asset tool now clears, enclosed pockets
