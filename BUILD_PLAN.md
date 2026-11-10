@@ -565,7 +565,7 @@ tools they can look it up by that id.
 checklist; a bounty is one item on it, and belongs to exactly one ledger.
 
 - A ledger can be granted to cities, which can then **read** its bounties. That
-  is the whole of a city's access: reading, plus reporting to the ranger (below).
+  is the whole of a city's access: reading, plus reporting to the warden (below).
 - A ledger granted to nobody is just yours: "go to the bank today" needs no
   folder and no city.
 - A bounty can be moved to another ledger, because what looked project-specific
@@ -577,11 +577,11 @@ checklist; a bounty is one item on it, and belongs to exactly one ledger.
 - When a bounty is closed, its branch and commit are read from git in the
   assigned city's folder and stored on it.
 
-**Every bounty keeps a log**, newest at the bottom: your comments, the ranger's,
+**Every bounty keeps a log**, newest at the bottom: your comments, the warden's,
 and entries written automatically, so it doubles as its history: created,
 moved from one ledger to another, assigned, reported fixed, closed with branch and commit.
 
-**The ranger keeps the board.** A Claude of its own, which you talk to in the
+**The warden keeps the board.** A Claude of its own, which you talk to in the
 board's panel the way you talk to a governor. Its world is the board.
 
 - You brain-dump issues at it; it proposes how to organise them, as checklist
@@ -595,7 +595,7 @@ board's panel the way you talk to a governor. Its world is the board.
   uncommitted, anything unpushed.
 
 **Closing a bounty.** A governor whose city can read a ledger can tell the
-ranger it has fixed a bounty. The ranger checks the work through the Keep and
+warden it has fixed a bounty. The warden checks the work through the Keep and
 raises a flag on the board rather than closing it:
 
 > Shaheen's App says it fixed *Fix login redirect*. It isn't committed or
@@ -613,8 +613,8 @@ app; the rest change how sessions start, so they are built from a terminal.
 1. The panel's layer stack, moving the existing details sheet onto it. ✅
 2. Ledgers and bounties by hand: `board.json`, the three layers, moves, the log.
    Useful on its own. ✅
-3. The ranger: a new kind of session, with board tools and the Keep's git check.
-4. Governor tools: read granted ledgers, report a bounty fixed to the ranger.
+3. The warden: a new kind of session, with board tools and the Keep's git check.
+4. Governor tools: read granted ledgers, report a bounty fixed to the warden.
 5. The closing flag.
 
 ### The Guildhall

@@ -1990,7 +1990,7 @@ function renderBounty(b: Bounty | undefined): string {
   const when = (t: number) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const log = b.log
     .map((e) => `<div class="logline ${e.who}">
-        <div class="muted meta">${esc(e.who === "you" ? realm.defaults.cottageName || "You" : e.who === "ranger" ? "Ranger" : "Board")} · ${esc(when(e.at))}</div>
+        <div class="muted meta">${esc(e.who === "you" ? realm.defaults.cottageName || "You" : e.who === "warden" ? "Warden" : "Board")} · ${esc(when(e.at))}</div>
         <div class="${e.who === "board" ? "" : "md"}">${e.who === "board" ? esc(e.text) : markdown(e.text, e.who === "you" ? yourMarkdown : marked)}</div>
       </div>`)
     .join("");

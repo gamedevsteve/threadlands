@@ -240,7 +240,7 @@ export type Api = {
 // ── the bounty board ──────────────────────────────────────────────────────────
 
 /** One line in a bounty's history: a comment, or something that happened to it. */
-export type BountyLogEntry = { at: number; who: "you" | "ranger" | "board"; text: string };
+export type BountyLogEntry = { at: number; who: "you" | "warden" | "board"; text: string };
 
 export type BountyState = "open" | "assigned" | "done";
 
