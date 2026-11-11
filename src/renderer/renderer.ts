@@ -3258,6 +3258,14 @@ keep.onWindowState(setZoomLabel);
 terminalBtn.addEventListener("click", () => {
   if (selected) void keep.openTerminal(selected);
 });
+// Long conversations re-send their whole history every turn. Compacting swaps
+// it for a summary; the SDK takes /compact as an ordinary message.
+document.getElementById("compact")!.addEventListener("click", () => {
+  const s = selected ? byId.get(selected) : null;
+  if (!s) return;
+  void keep.send(s.id, "/compact");
+  toast(`Compacting ${s.name}. It takes a minute; it remembers the gist, not every detail.`);
+});
 document.getElementById("stop")!.addEventListener("click", () => {
   if (boardOpen) void keep.wardenInterrupt();
   else if (selected) void keep.interrupt(selected);
