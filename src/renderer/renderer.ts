@@ -61,6 +61,9 @@ type Keep = {
   rookeryOp(op: RookeryOp): Promise<Rookery>;
   importPlan(settlementId: string): Promise<Rookery | null>;
   onRookery(cb: (r: Rookery) => void): void;
+  saveLetter(id: string, format: "md" | "pdf" | "plain", replies: boolean): Promise<string | null>;
+  shareLetter(id: string, format: "md" | "pdf" | "plain", replies: boolean): Promise<void>;
+  makePlain(id: string, replies: boolean): Promise<Rookery>;
   wardenSend(text: string): Promise<void>;
   wardenAnswerFlag(answer: boolean | string): Promise<void>;
   wardenInterrupt(): Promise<void>;
@@ -2464,6 +2467,10 @@ let rookery: Rookery = { letters: [], nextNumber: 1 };
 let openLetter: string | null = null;
 /** Who a new post in a thread is from: you, or someone outside you are quoting. */
 let postAs: "you" | "outside" = "you";
+/** Whether a share includes the replies, or only the letter itself. */
+let shareReplies = false;
+/** The letter whose plain-language version is being written, if any. */
+let writingPlain: string | null = null;
 
 function openRookery(): void {
   selected = null;
@@ -2571,6 +2578,27 @@ function renderThread(l: Letter | undefined): string {
     <textarea id="r-title" rows="2" maxlength="200">${esc(l.title)}</textarea>
     <div class="thread">${posts}</div>
 
+    <label>Share</label>
+    ${l.posts.filter((p) => p.status !== "binned").length > 1
+      ? `<div class="checkrow"><input type="checkbox" id="r-replies" ${shareReplies ? "checked" : ""} /> <span>Include the replies, as a thread</span></div>`
+      : ""}
+    <div class="sharerow"><span>Markdown <span class="muted">for developers</span></span>
+      <button data-save="md">Save…</button><button data-share="md">Share…</button></div>
+    <div class="sharerow"><span>PDF <span class="muted">typeset, for anyone</span></span>
+      <button data-save="pdf">Save…</button><button data-share="pdf">Share…</button></div>
+    <div class="sharerow"><span>Plain language <span class="muted">PDF, not technical</span></span>
+      ${writingPlain === l.id
+        ? `<span class="muted">writing…</span>`
+        : l.plain
+          ? `<button data-save="plain">Save…</button><button data-share="plain">Share…</button>`
+          : `<button id="r-plain">Write it</button>`}</div>
+    ${l.plain && writingPlain !== l.id
+      ? `<details class="plain"><summary>Read the plain-language version first</summary>
+          <div class="md">${markdown(l.plain.body)}</div>
+          <div class="btns"><button id="r-plain">Write it again</button></div></details>`
+      : ""}
+    <p class="muted hint">Share opens the Mac's share sheet: AirDrop, Mail, Messages, Slack. The plain-language version is written by Claude from this letter alone, for a few cents, and nothing is sent until you choose.</p>
+
     <label>Post in this thread</label>
     <div class="seg" id="r-as">
       <button data-as="you" class="${postAs === "you" ? "on" : ""}">As ${esc(realm.defaults.cottageName || "you")}</button>
@@ -2671,6 +2699,36 @@ function bindRookery(): void {
   status("data-keep", "kept");
   status("data-bin", "binned");
   status("data-unbin", "kept");
+
+  $<HTMLInputElement>("#r-replies")?.addEventListener("change", (e) => {
+    shareReplies = (e.target as HTMLInputElement).checked;
+  });
+  const replies = () => shareReplies && l.posts.filter((p) => p.status !== "binned").length > 1;
+  const fail = (err: unknown) =>
+    toast(String((err as Error)?.message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+  pane.querySelectorAll<HTMLButtonElement>("[data-save]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      try {
+        const where = await keep.saveLetter(l.id, b.dataset.save as "md" | "pdf" | "plain", replies());
+        if (where) toast(`Saved ${where.split("/").pop()}`);
+      } catch (err) { fail(err); }
+    }),
+  );
+  pane.querySelectorAll<HTMLButtonElement>("[data-share]").forEach((b) =>
+    b.addEventListener("click", () => void keep.shareLetter(l.id, b.dataset.share as "md" | "pdf" | "plain", replies()).catch(fail)),
+  );
+  pane.querySelectorAll<HTMLButtonElement>("#r-plain").forEach((b) =>
+    b.addEventListener("click", async () => {
+      writingPlain = l.id;
+      render();
+      try {
+        rookery = await keep.makePlain(l.id, replies());
+        toast("Plain-language version ready. Read it before you send it.");
+      } catch (err) { fail(err); }
+      writingPlain = null;
+      render();
+    }),
+  );
 
   pane.querySelectorAll<HTMLButtonElement>("#r-as button").forEach((b) =>
     b.addEventListener("click", () => { postAs = b.dataset.as as typeof postAs; render(); }),

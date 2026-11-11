@@ -1,7 +1,7 @@
 /**
  * Threadlands — Electron main. Window, IPC, the idle reaper.
  */
-import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, nativeImage, shell } from "electron";
+import { BrowserWindow, Menu, Notification, ShareMenu, app, dialog, ipcMain, nativeImage, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import { RealmStore } from "./realm.js";
 import { BoardStore } from "./board.js";
 import { RookeryStore } from "./rookery.js";
+import { asHtml, asMarkdown, fileName, plainHtml, toPdf, writePlain } from "./share.js";
+import type { ShareFormat } from "./share.js";
 import { Supervisor } from "./supervisor.js";
 import { Warden } from "./warden.js";
 import { GovernorBoard } from "./boardtools.js";
@@ -283,6 +285,45 @@ app.whenReady().then(() => {
     pushRookery();
     return rookery.rookery;
   });
+  // Getting a letter out: saved where you choose, or handed to the share sheet.
+  const letterFile = async (letterId: string, format: ShareFormat, replies: boolean) => {
+    const l = rookery.rookery.letters.find((x) => x.id === letterId);
+    if (!l) throw new Error("That letter is gone.");
+    const settler = store.defaults.cottageName || "The settler";
+    const first = l.posts[0]!.author;
+    const from = first.kind === "settlement" ? first.name : first.kind === "outside" ? first.name : settler;
+    if (format === "plain" && !l.plain) throw new Error("Write the plain-language version first.");
+    const data =
+      format === "md" ? Buffer.from(asMarkdown(l, replies, settler))
+      : format === "pdf" ? await toPdf(asHtml(l, replies, settler, from))
+      : await toPdf(plainHtml(l, from));
+    return { name: fileName(l, format), data };
+  };
+  ipcMain.handle("saveLetter", async (_e, letterId: string, format: ShareFormat, replies: boolean) => {
+    const { name, data } = await letterFile(letterId, format, replies);
+    const r = await dialog.showSaveDialog({ defaultPath: join(app.getPath("downloads"), name) });
+    if (r.canceled || !r.filePath) return null;
+    writeFileSync(r.filePath, data);
+    return r.filePath;
+  });
+  ipcMain.handle("shareLetter", async (_e, letterId: string, format: ShareFormat, replies: boolean) => {
+    const { name, data } = await letterFile(letterId, format, replies);
+    // The share sheet takes files, so the letter is written somewhere private first.
+    const dir = join(app.getPath("temp"), "threadlands-share");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, name);
+    writeFileSync(path, data);
+    new ShareMenu({ filePaths: [path] }).popup(win ? { window: win } : {});
+  });
+  ipcMain.handle("makePlain", async (_e, letterId: string, replies: boolean) => {
+    const l = rookery.rookery.letters.find((x) => x.id === letterId);
+    if (!l) throw new Error("That letter is gone.");
+    const settler = store.defaults.cottageName || "The settler";
+    rookery.setPlain(l.id, await writePlain(asMarkdown(l, replies, settler), claudeExecutable()));
+    pushRookery();
+    return rookery.rookery;
+  });
+
   ipcMain.handle("importPlan", async (_e, settlementId: string) => {
     const s = store.settlements.get(settlementId);
     if (!s) throw new Error("That settlement is gone.");

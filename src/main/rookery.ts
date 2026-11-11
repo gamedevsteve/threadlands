@@ -114,7 +114,13 @@ export class RookeryStore {
     this.save();
   }
 
-  /** A razed settlement's letters stay: the thread is the record. Only its name is kept. */
+  /** Keep a plain-language rewrite with its letter. */
+  setPlain(letterId: string, body: string): void {
+    const l = this.rookery.letters.find((x) => x.id === letterId);
+    if (!l) throw new Error("That letter is gone.");
+    l.plain = { body, at: Date.now() };
+    this.save();
+  }
 }
 
 function post(author: LetterAuthor, body: string): LetterPost {

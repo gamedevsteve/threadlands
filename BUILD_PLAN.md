@@ -599,7 +599,7 @@ The third changes how every session starts, so it is built from a terminal.
 1. The rookery panel and store: letters and threads, adding a plan from a
    file, your own posts (as you, or as someone outside), annotate, bin, and
    forward, which delivers through the existing send. ✅
-2. Sharing: markdown, PDF, plain-language PDF, and the share sheet.
+2. Sharing: markdown, PDF, plain-language PDF, and the share sheet. ✅
 3. Governor tools: send a finding, send a plan, reply to a letter, read a
    letter, and questions as a flag.
 

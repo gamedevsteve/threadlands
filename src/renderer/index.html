@@ -446,6 +446,15 @@
   .post .body { overflow-wrap: anywhere; }
   .chip { font-size: 10px; padding: 1px 7px; border-radius: 9px; background: rgba(94, 72, 38, .12); color: var(--dim); }
   .chip.waiting { background: var(--flag); color: #fdf4dd; }
+  .checkrow { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; font-size: 12px; }
+  .checkrow input { margin: 0; accent-color: var(--accent); }
+  .sharerow { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid rgba(94, 72, 38, .14); }
+  .sharerow > span:first-child { flex: 1; min-width: 0; }
+  .sharerow .muted { font-size: 11px; }
+  .sharerow button { padding: 3px 10px; }
+  details.plain { margin: 8px 0; }
+  details.plain summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+  details.plain .md { margin-top: 6px; padding: 8px 10px; background: rgba(255, 250, 238, .6); border-radius: 6px; }
   details.forward { margin-top: 8px; border-top: 1px dashed var(--edge); padding-top: 6px; }
   details.forward summary { cursor: pointer; color: var(--accent); font-size: 12px; }
   details.forward select, details.forward textarea { margin-top: 6px; }

@@ -272,6 +272,12 @@ export type Api = {
   /** Pick a markdown file in a settlement's folder and post it as a plan from that settlement. */
   importPlan(settlementId: string): Promise<Rookery | null>;
   onRookery(cb: (r: Rookery) => void): void;
+  /** Save a letter as markdown, a PDF, or its plain-language PDF. Resolves with where, or null. */
+  saveLetter(letterId: string, format: "md" | "pdf" | "plain", replies: boolean): Promise<string | null>;
+  /** Hand a letter to the macOS share sheet: AirDrop, Mail, Messages, Slack. */
+  shareLetter(letterId: string, format: "md" | "pdf" | "plain", replies: boolean): Promise<void>;
+  /** Write the plain-language version: a one-off Claude call that sees only the letter. */
+  makePlain(letterId: string, replies: boolean): Promise<Rookery>;
   /** Talk to the warden. Spawns or resumes it, like a governor. */
   wardenSend(text: string): Promise<void>;
   wardenAnswerFlag(answer: boolean | string): Promise<void>;

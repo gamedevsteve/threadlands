@@ -21,7 +21,11 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
   post in any thread yourself, or for someone outside the realm, pasting what
   your lead dev said under his name, so a review's whole back-and-forth stays in
   one place. Add a plan from any markdown file in a settlement's folder. Kept in
-  `rookery.json`, beside the board. The art arrived with a transparency
+  `rookery.json`, beside the board. Any letter, or its whole thread, goes out as **markdown**,
+  a typeset **PDF**, or a **plain-language PDF** for people who are not
+  technical, written by a one-off Claude call that sees only the letter, which
+  you read before it goes anywhere. **Share…** opens the Mac's share sheet:
+  AirDrop, Mail, Messages, Slack. The art arrived with a transparency
   checkerboard painted in, which `key_checkerboard` in the asset tool clears.
 - **The panel lists your settlements** when nothing is open, in place of the
   how-to text: the ones that need you first, then the ones at work, then the
