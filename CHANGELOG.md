@@ -13,12 +13,16 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
-- **The rookery** stands at q 2, r −4, where messengers will fly from. Not
-  open yet: its plate says *soon*, a click says so, and it is listed as planned
-  under the realm. Its art arrived with a transparency checkerboard painted in,
-  which `key_checkerboard` in the asset tool now clears, enclosed pockets
-  included, without touching the white doves that sit against it. The mail icon
-  on the rail flies to it.
+- **The rookery opens.** Click it, its rail button, or its row under the realm
+  for `The rookery › L-7`. Letters are threads: a plan or a finding, then its
+  replies. Anything a settlement sends waits there, marked *waiting for you*,
+  until you keep it, bin it, or forward it to a settlement with a note. Forwarding
+  sends the thread up to that post, and that governor starts on it. You can
+  post in any thread yourself, or for someone outside the realm, pasting what
+  your lead dev said under his name, so a review's whole back-and-forth stays in
+  one place. Add a plan from any markdown file in a settlement's folder. Kept in
+  `rookery.json`, beside the board. The art arrived with a transparency
+  checkerboard painted in, which `key_checkerboard` in the asset tool clears.
 - **The panel lists your settlements** when nothing is open, in place of the
   how-to text: the ones that need you first, then the ones at work, then the
   rest by when they were last active, each with a dot for its state. Click one

@@ -21,6 +21,8 @@ import type {
   SettlementState,
 } from "../shared/types.js";
 import type { Board, BoardOp, Bounty, Ledger, Warden } from "../shared/types.js";
+import type { Letter, LetterAuthor, Rookery, RookeryOp } from "../shared/types.js";
+import { letterRef } from "../shared/types.js";
 import { bountyRef } from "../shared/types.js";
 
 type Keep = {
@@ -55,6 +57,10 @@ type Keep = {
   getBoard(): Promise<Board>;
   boardOp(op: BoardOp): Promise<Board>;
   onBoard(cb: (b: Board) => void): void;
+  getRookery(): Promise<Rookery>;
+  rookeryOp(op: RookeryOp): Promise<Rookery>;
+  importPlan(settlementId: string): Promise<Rookery | null>;
+  onRookery(cb: (r: Rookery) => void): void;
   wardenSend(text: string): Promise<void>;
   wardenAnswerFlag(answer: boolean | string): Promise<void>;
   wardenInterrupt(): Promise<void>;
@@ -331,6 +337,10 @@ function crumbs(root: string, rootClass: string, status: string): string {
 }
 
 function layerLabel(id: string): string {
+  if (id === "letter") {
+    const l = rookery.letters.find((x) => x.id === openLetter);
+    return l ? letterRef(l) : "Letter";
+  }
   if (id === "ledger") return board.ledgers.find((l) => l.id === boardLedger)?.name ?? "Ledger";
   if (id === "bounty") {
     const b = board.bounties.find((x) => x.id === boardBounty);
@@ -363,7 +373,10 @@ function syncLayers(): void {
   btn?.setAttribute("title", detailsOpen ? "Hide details" : "Show details");
   const nav = pane.querySelector<HTMLElement>("#crumbs");
   const s = selected ? byId.get(selected) : null;
-  if (nav && boardOpen) {
+  if (nav && rookeryOpen) {
+    nav.innerHTML = crumbs("The rookery", "", rookeryStatus());
+    bindCrumbs();
+  } else if (nav && boardOpen) {
     nav.innerHTML = crumbs("Bounty board", "", boardStatus());
     bindCrumbs();
   } else if (nav && s) {
@@ -379,7 +392,7 @@ function stateWordOf(s: Session): string {
 function pushLayer(id: string): void {
   if (layers.includes(id)) return;
   layers.push(id);
-  if (boardOpen) {
+  if (boardOpen || rookeryOpen) {
     // The board's layers are drawn from what was clicked, so render them
     // first, closed, then open them once the browser has a position to
     // slide from.
@@ -1163,7 +1176,8 @@ function draw(): void {
     drawSprite("rookery", x, y, size, false, hovered ? [{ colour: "rgba(240,246,248,.85)", blur: size * 0.14, passes: 2 }] : []);
     if (camera.zoom >= BANNER_ALL_BELOW || hovered) {
       const foot = spriteFoot("rookery", y, size);
-      plates.push(() => nameplate("Rookery · soon", x, foot, "#d8d4cc", "#4a463e"));
+      const w = lettersWaiting();
+      plates.push(() => nameplate(w ? `Rookery · ${w}` : "Rookery", x, foot, w ? "#ffb08a" : "#f0dcae", "#3a2a12"));
     }
   }
 
@@ -1560,8 +1574,7 @@ function clickHex(h: { q: number; r: number }): void {
   }
   if (hexEq(h, rookeryHex())) {
     setBuilding(null);
-    toast("The rookery isn't open yet. Messengers will fly from here.");
-    render();
+    openRookery();
     return;
   }
   if (hexEq(h, realm.cottageHex)) {
@@ -1569,6 +1582,7 @@ function clickHex(h: { q: number; r: number }): void {
     founding = null;
     cottageOpen = true;
     boardOpen = false;
+    rookeryOpen = false;
     setBuilding(null);
     void refreshBudgets();
     render();
@@ -1577,6 +1591,7 @@ function clickHex(h: { q: number; r: number }): void {
   const s = [...byId.values()].find((x) => hexEq(x.hex, h));
   cottageOpen = false;
   boardOpen = false;
+  rookeryOpen = false;
   if (s) {
     selected = s.id;
     founding = null;
@@ -2032,6 +2047,7 @@ function openBoard(): void {
   selected = null;
   cottageOpen = false;
   founding = null;
+  rookeryOpen = false;
   boardOpen = true;
   layers = [];
   boardLedger = null;
@@ -2441,11 +2457,260 @@ keep.onBoard((b) => {
   if (boardOpen) render();
 });
 
+// ── the rookery ───────────────────────────────────────────────────────────────
+
+let rookeryOpen = false;
+let rookery: Rookery = { letters: [], nextNumber: 1 };
+let openLetter: string | null = null;
+/** Who a new post in a thread is from: you, or someone outside you are quoting. */
+let postAs: "you" | "outside" = "you";
+
+function openRookery(): void {
+  selected = null;
+  cottageOpen = false;
+  founding = null;
+  boardOpen = false;
+  rookeryOpen = true;
+  layers = [];
+  openLetter = null;
+  deleteArmed = null;
+  render();
+}
+
+function goToRookery(): void {
+  const p = hexToPixel(rookeryHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
+  flyTo(-p.x, -p.y, BOUNTY_ZOOM);
+  setBuilding(null);
+  openRookery();
+}
+
+function lettersWaiting(l?: Letter): number {
+  return (l ? [l] : rookery.letters).reduce((n, x) => n + x.posts.filter((p) => p.status === "waiting").length, 0);
+}
+
+function rookeryStatus(): string {
+  const n = lettersWaiting();
+  return n ? `${n} waiting for you` : `${rookery.letters.length} letter${rookery.letters.length === 1 ? "" : "s"}`;
+}
+
+function authorLabel(a: LetterAuthor): string {
+  return a.kind === "you" ? realm.defaults.cottageName || "You" : a.kind === "outside" ? `${a.name} · outside` : a.name;
+}
+
+async function rookeryDo(op: RookeryOp): Promise<boolean> {
+  try {
+    rookery = await keep.rookeryOp(op);
+    return true;
+  } catch (e) {
+    toast(String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    return false;
+  }
+}
+
+function renderLetters(): string {
+  const rows = [...rookery.letters]
+    .sort((a, b) => lettersWaiting(b) - lettersWaiting(a) || b.posts.at(-1)!.at - a.posts.at(-1)!.at)
+    .map((l) => {
+      const w = lettersWaiting(l);
+      const from = authorLabel(l.posts[0]!.author);
+      const to = l.to ? ` → ${settlementName(l.to) || "a razed settlement"}` : "";
+      return `<button class="ledgerrow letterrow${w ? " waiting" : ""}" data-letter="${esc(l.id)}">
+          <span class="lname"><span class="bid">${letterRef(l)}</span> ${esc(l.title)}</span>
+          <span class="muted">${l.kind} · ${esc(from)}${esc(to)} · ${l.posts.length} post${l.posts.length === 1 ? "" : "s"}${w ? ` · <b>${w} waiting</b>` : ""}</span>
+        </button>`;
+    })
+    .join("");
+  const sources = [...byId.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`)
+    .join("");
+  return `<h2>Letters</h2>
+    <div class="ledgers">${rows || '<div class="muted">No letters yet. Settlements will send findings and plans here once they have the tools; until then, add a plan from a file.</div>'}</div>
+    <label>Add a plan from a settlement's folder</label>
+    <select id="r-import"><option value="">Choose a settlement…</option>${sources}</select>
+    <p class="muted hint">Pick a markdown file, and it becomes a plan from that settlement: a thread you can reply in, forward, and share.</p>`;
+}
+
+function renderThread(l: Letter | undefined): string {
+  if (!l) return "";
+  const when = (t: number) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const people = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const posts = l.posts.map((p) => {
+    const chip = p.status === "waiting"
+      ? `<span class="chip waiting">waiting for you</span>`
+      : p.status === "forwarded"
+        ? `<span class="chip">forwarded to ${esc(settlementName(p.forwardedTo) || "a razed settlement")}${p.forwardedAt ? ` · ${esc(when(p.forwardedAt))}` : ""}</span>`
+        : p.status === "binned" ? `<span class="chip">binned</span>` : "";
+    // A finding is meant for someone: offer them first.
+    const target = l.to ?? "";
+    const opts = people.map((s) => `<option value="${esc(s.id)}" ${s.id === target ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+    const actions = p.status === "binned"
+      ? `<div class="btns"><button data-unbin="${esc(p.id)}">Take out of the bin</button></div>`
+      : `<details class="forward"${p.status === "waiting" ? " open" : ""}>
+          <summary>${p.status === "forwarded" ? "Forward again" : "Forward…"}</summary>
+          <select data-fwd-to="${esc(p.id)}"><option value="">To…</option>${opts}</select>
+          <textarea data-fwd-note="${esc(p.id)}" rows="2" placeholder="A note to go with it (optional)"></textarea>
+          <p class="muted hint">Forwarding sends the thread up to here, and that governor starts on it.</p>
+          <div class="btns">
+            <button class="primary" data-fwd="${esc(p.id)}">Forward</button>
+            ${p.status === "waiting" ? `<button data-keep="${esc(p.id)}">Keep, don't forward</button>` : ""}
+            <button class="danger" data-bin="${esc(p.id)}">Bin</button>
+          </div>
+        </details>`;
+    return `<article class="post ${p.status} ${p.author.kind}">
+        <header><b>${esc(authorLabel(p.author))}</b> <span class="muted">${esc(when(p.at))}</span> ${chip}</header>
+        ${p.note ? `<div class="muted hint">Your note: ${esc(p.note)}</div>` : ""}
+        <div class="md body">${p.status === "binned" ? '<p class="muted">(binned)</p>' : markdown(p.body, p.author.kind === "you" ? yourMarkdown : marked)}</div>
+        ${actions}
+      </article>`;
+  }).join("");
+  return `<div class="bidrow">
+      <span class="bid big">${letterRef(l)}</span>
+      <span class="muted">${l.kind}${l.to ? ` for ${esc(settlementName(l.to) || "a razed settlement")}` : ""}</span>
+    </div>
+    <textarea id="r-title" rows="2" maxlength="200">${esc(l.title)}</textarea>
+    <div class="thread">${posts}</div>
+
+    <label>Post in this thread</label>
+    <div class="seg" id="r-as">
+      <button data-as="you" class="${postAs === "you" ? "on" : ""}">As ${esc(realm.defaults.cottageName || "you")}</button>
+      <button data-as="outside" class="${postAs === "outside" ? "on" : ""}">For someone outside</button>
+    </div>
+    ${postAs === "outside" ? `<input id="r-outside" maxlength="80" placeholder="Who said it: Dave, backend lead" />` : ""}
+    <textarea id="r-body" rows="4" placeholder="${postAs === "outside" ? "Paste what they said…" : "Your reply…"}"></textarea>
+    <div class="btns">
+      <button class="primary" id="r-post">Post</button>
+      <button class="danger" id="r-delete">${deleteArmed === l.id ? "Click again to delete the thread" : "Delete thread"}</button>
+    </div>`;
+}
+
+function renderRookeryPane(): void {
+  // Like the board: keep what was being typed, and where each sheet was scrolled.
+  const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+  const typed = active && pane.contains(active) && active.id && "value" in active
+    ? { id: active.id, value: active.value } : null;
+  const drafts = new Map<string, string>();
+  pane.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>("textarea[data-fwd-note], #r-body, #r-outside").forEach((t) => {
+    if (t.value) drafts.set(t.dataset.fwdNote ?? t.id, t.value);
+  });
+  const scrolls = new Map<string, number>();
+  pane.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => scrolls.set(el.dataset.scroll!, el.scrollTop));
+
+  if (openLetter && !rookery.letters.some((l) => l.id === openLetter)) { openLetter = null; layers = []; }
+  const isOpen = (id: string) => (layers.includes(id) && id !== entering ? " open" : "");
+  pane.innerHTML = `<div class="shead">
+      <nav class="who crumbs" id="crumbs">${crumbs("The rookery", "", rookeryStatus())}</nav>
+    </div>
+    <div class="chatwrap">
+      <div class="chatscroll boardsheet" data-scroll="root">${renderLetters()}</div>
+      <div class="layer${isOpen("letter")}" data-layer="letter" data-scroll="letter" style="z-index: 3">${renderThread(rookery.letters.find((l) => l.id === openLetter))}</div>
+    </div>`;
+  composer.classList.add("hidden");
+  hint.textContent = "the rookery";
+
+  pane.querySelectorAll<HTMLElement>("[data-scroll]").forEach((el) => {
+    const top = scrolls.get(el.dataset.scroll!);
+    if (top !== undefined) el.scrollTop = top;
+  });
+  pane.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>("textarea[data-fwd-note], #r-body, #r-outside").forEach((t) => {
+    const v = drafts.get(t.dataset.fwdNote ?? t.id);
+    if (v) t.value = v;
+  });
+  if (typed) {
+    const el = pane.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${CSS.escape(typed.id)}`);
+    if (el) { el.value = typed.value; el.focus(); }
+  }
+  bindCrumbs();
+  bindRookery();
+}
+
+function bindRookery(): void {
+  const $ = <T extends HTMLElement>(sel: string) => pane.querySelector<T>(sel);
+  pane.querySelectorAll<HTMLButtonElement>(".letterrow").forEach((b) =>
+    b.addEventListener("click", () => {
+      openLetter = b.dataset.letter!;
+      deleteArmed = null;
+      layers = [];
+      pushLayer("letter");
+    }),
+  );
+  $<HTMLSelectElement>("#r-import")?.addEventListener("change", async (e) => {
+    const sel = e.target as HTMLSelectElement;
+    const id = sel.value;
+    sel.value = "";
+    if (!id) return;
+    try {
+      const r = await keep.importPlan(id);
+      if (r) { rookery = r; toast("Plan added"); render(); }
+    } catch (err) {
+      toast(String((err as Error)?.message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    }
+  });
+
+  const l = rookery.letters.find((x) => x.id === openLetter);
+  if (!l) return;
+  const title = $<HTMLTextAreaElement>("#r-title");
+  title?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); title.blur(); } });
+  title?.addEventListener("change", () => void rookeryDo({ op: "rename", letterId: l.id, title: title.value.replace(/\s*\n\s*/g, " ") }));
+
+  pane.querySelectorAll<HTMLButtonElement>("[data-fwd]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const postId = b.dataset.fwd!;
+      const to = pane.querySelector<HTMLSelectElement>(`[data-fwd-to="${CSS.escape(postId)}"]`)?.value;
+      if (!to) { toast("Choose who to forward it to"); return; }
+      const note = pane.querySelector<HTMLTextAreaElement>(`[data-fwd-note="${CSS.escape(postId)}"]`)?.value ?? "";
+      b.disabled = true;
+      if (await rookeryDo({ op: "forward", letterId: l.id, postId, to, note })) toast(`Forwarded to ${settlementName(to)}`);
+      render();
+    }),
+  );
+  const status = (attr: string, st: "kept" | "binned" | "waiting") =>
+    pane.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach((b) =>
+      b.addEventListener("click", () => void rookeryDo({ op: "setStatus", letterId: l.id, postId: b.getAttribute(attr)!, status: st }).then(render)),
+    );
+  status("data-keep", "kept");
+  status("data-bin", "binned");
+  status("data-unbin", "kept");
+
+  pane.querySelectorAll<HTMLButtonElement>("#r-as button").forEach((b) =>
+    b.addEventListener("click", () => { postAs = b.dataset.as as typeof postAs; render(); }),
+  );
+  $<HTMLButtonElement>("#r-post")?.addEventListener("click", async () => {
+    const body = $<HTMLTextAreaElement>("#r-body")?.value ?? "";
+    if (!body.trim()) return;
+    const author = postAs === "outside"
+      ? { kind: "outside" as const, name: $<HTMLInputElement>("#r-outside")?.value ?? "" }
+      : { kind: "you" as const };
+    if (await rookeryDo({ op: "post", letterId: l.id, author, body })) {
+      const box = $<HTMLTextAreaElement>("#r-body");
+      if (box) box.value = "";
+      render();
+    }
+  });
+  $<HTMLButtonElement>("#r-delete")?.addEventListener("click", async () => {
+    if (deleteArmed !== l.id) { deleteArmed = l.id; render(); return; }
+    deleteArmed = null;
+    if (await rookeryDo({ op: "deleteLetter", letterId: l.id })) { openLetter = null; layers = []; }
+    render();
+  });
+}
+
+keep.onRookery((r) => {
+  rookery = r;
+  invalidate();
+  if (rookeryOpen) render();
+});
+
 function render(): void {
   if (!realm) return;
   invalidate();
   const s = selected ? byId.get(selected) : null;
-  pane.classList.toggle("split", (!!s && !cottageOpen && !founding) || boardOpen);
+  pane.classList.toggle("split", (!!s && !cottageOpen && !founding) || boardOpen || rookeryOpen);
+
+  if (rookeryOpen) {
+    renderRookeryPane();
+    return;
+  }
 
   if (boardOpen) {
     renderBoardPane();
@@ -2836,10 +3101,11 @@ window.addEventListener("keydown", (e) => {
     popLayer(layers.length - 1);
     return;
   }
-  if (e.key === "Escape" && !typingHere && (selected || cottageOpen || boardOpen)) {
+  if (e.key === "Escape" && !typingHere && (selected || cottageOpen || boardOpen || rookeryOpen)) {
     selected = null;
     cottageOpen = false;
     boardOpen = false;
+    rookeryOpen = false;
     render();
     return;
   }
@@ -2924,12 +3190,7 @@ document.getElementById("go-bounty")!.addEventListener("click", () => {
 });
 
 // The rookery is not open yet, so its button only takes you there.
-document.getElementById("go-rookery")!.addEventListener("click", () => {
-  const p = hexToPixel(rookeryHex(), Math.round(74 * BOUNTY_ZOOM * 10) / 10);
-  flyTo(-p.x, -p.y, BOUNTY_ZOOM);
-  setBuilding(null);
-  toast("The rookery isn't open yet. Messengers will fly from here.");
-});
+document.getElementById("go-rookery")!.addEventListener("click", () => goToRookery());
 
 const zoomWin = document.getElementById("zoomwin") as HTMLButtonElement;
 const setZoomLabel = (big: boolean) => { zoomWin.textContent = big ? "Restore" : "Fill screen"; };
@@ -2952,7 +3213,7 @@ keep.onSettlement((s) => {
   // Re-render when the open panel is about this settlement, when a flag goes up
   // anywhere, or when the idle pane is showing a count that just changed.
   // The list on an empty panel shows every settlement's state, so it redraws too.
-  const listShowing = !selected && !cottageOpen && !boardOpen && !founding;
+  const listShowing = !selected && !cottageOpen && !boardOpen && !rookeryOpen && !founding;
   if (s.id === selected || s.state === "needs_you" || listShowing) render();
   else if (!selected && !cottageOpen) hint.textContent = `${byId.size} settlement${byId.size === 1 ? "" : "s"}`;
 });
@@ -3002,7 +3263,7 @@ const REALM_BUILDINGS: RealmBuilding[] = [
     },
     go: goToBoard,
   },
-  { id: "rookery", name: "The rookery", sprite: "rookery", sub: () => "planned · messengers" },
+  { id: "rookery", name: "The rookery", sprite: "rookery", sub: () => rookeryStatus(), go: goToRookery },
   { id: "guildhall", name: "The Guildhall", sprite: "", sub: () => "planned · rules and tools" },
 ];
 
@@ -3023,6 +3284,7 @@ function goToCottage(): void {
   selected = null;
   founding = null;
   boardOpen = false;
+  rookeryOpen = false;
   cottageOpen = true;
   layers = [];
   setBuilding(null);
@@ -3047,6 +3309,7 @@ function goToSettlement(id: string): void {
   selected = id;
   cottageOpen = false;
   boardOpen = false;
+  rookeryOpen = false;
   founding = null;
   layers = [];
   // Camera units are screen pixels at the target zoom, so measure there.
@@ -3060,6 +3323,7 @@ keep.onFocusSettlement((id) => {
   selected = id;
   cottageOpen = false;
   boardOpen = false;
+  rookeryOpen = false;
   founding = null;
   // Bring it into view: a flag you clicked from the Dock may be off screen.
   const s = byId.get(id)!;
@@ -3170,6 +3434,7 @@ window.addEventListener("resize", () => {
     selected = id ?? [...byId.keys()][0] ?? null;
     cottageOpen = false;
     boardOpen = false;
+    rookeryOpen = false;
     founding = null;
     render();
   },
@@ -3178,6 +3443,7 @@ window.addEventListener("resize", () => {
     founding = null;
     cottageOpen = true;
     boardOpen = false;
+    rookeryOpen = false;
     void refreshBudgets();
   },
   list: () => [...byId.values()].map((s) => ({ id: s.id, name: s.name, state: s.state })),
@@ -3226,6 +3492,7 @@ window.addEventListener("resize", () => {
   ]);
   realm = await keep.getRealm();
   board = await keep.getBoard().catch(() => board);
+  rookery = await keep.getRookery().catch(() => rookery);
   keep.models().then((m) => { models = m; render(); }).catch(() => {});
   keep.getAvatar().then((u) => { avatarUrl = u; loadAvatarImage(); }).catch(() => {});
   for (const s of realm.settlements) byId.set(s.id, s);

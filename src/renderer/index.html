@@ -364,6 +364,8 @@
     .layer { transition: none; }
   }
   .layer.open { transform: translateX(0); }
+  /* A layer is a column that scrolls: nothing in it may be squeezed to fit. */
+  .layer > * { flex-shrink: 0; }
   .layer label:first-of-type { margin-top: 16px; }
   .layer .hint { font-size: 11px; margin: 4px 0 0; }
 
@@ -430,6 +432,23 @@
   .setrow .bthumb { flex: none; width: 22px; height: 22px; object-fit: contain; }
   .setrow.building.needs_you .sname { color: var(--flag); }
   .setrow.planned { opacity: .55; border: 1px dashed var(--edge); border-radius: 6px; cursor: default; }
+
+  /* The rookery: letters, and the thread inside each. */
+  .letterrow.waiting { border-color: var(--flag); }
+  .letterrow.waiting b { color: var(--flag); }
+  .thread { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; }
+  .post { padding: 9px 11px; border-radius: 8px; background: rgba(255, 250, 238, .55); border: 1px solid rgba(94, 72, 38, .2); }
+  .post.you { background: rgba(138, 100, 16, .12); }
+  .post.outside { background: rgba(61, 122, 92, .1); border-color: rgba(61, 122, 92, .3); }
+  .post.waiting { border-color: var(--flag); box-shadow: 0 0 0 2px rgba(163, 58, 34, .12); }
+  .post.binned { opacity: .55; }
+  .post header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+  .post .body { overflow-wrap: anywhere; }
+  .chip { font-size: 10px; padding: 1px 7px; border-radius: 9px; background: rgba(94, 72, 38, .12); color: var(--dim); }
+  .chip.waiting { background: var(--flag); color: #fdf4dd; }
+  details.forward { margin-top: 8px; border-top: 1px dashed var(--edge); padding-top: 6px; }
+  details.forward summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+  details.forward select, details.forward textarea { margin-top: 6px; }
 
   /* The bounty board. */
   /* The board itself: the ledgers pinned above the warden's conversation, so

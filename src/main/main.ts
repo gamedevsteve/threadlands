@@ -9,6 +9,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RealmStore } from "./realm.js";
 import { BoardStore } from "./board.js";
+import { RookeryStore } from "./rookery.js";
 import { Supervisor } from "./supervisor.js";
 import { Warden } from "./warden.js";
 import { GovernorBoard } from "./boardtools.js";
@@ -16,6 +17,7 @@ import { probeAccount } from "./usage.js";
 import { listModels } from "./models.js";
 import { artFor } from "../shared/types.js";
 import type {
+  RookeryOp,
   BoardOp,
   AccountBudget,
   Session,
@@ -74,6 +76,7 @@ let win: BrowserWindow | null = null;
 let store: RealmStore;
 let sup: Supervisor;
 let board: BoardStore;
+let rookery: RookeryStore;
 let warden: Warden;
 
 /** When each account's usage session resets, from the cottage's probe. */
@@ -269,6 +272,32 @@ app.whenReady().then(() => {
   ipcMain.handle("getRealm", () => store.toRealm());
 
   ipcMain.handle("getBoard", () => board.board);
+
+  // The rookery. Letters wait here for you; forwarding is the only way one
+  // reaches a settlement, and it goes through the same send as the chat box.
+  rookery = new RookeryStore(store.dir);
+  const pushRookery = () => win?.webContents.send("rookery", rookery.rookery);
+  ipcMain.handle("getRookery", () => rookery.rookery);
+  ipcMain.handle("rookeryOp", async (_e, op: RookeryOp) => {
+    await rookery.apply(op, (id) => store.settlements.get(id), (id, text) => sup.send(id, text));
+    pushRookery();
+    return rookery.rookery;
+  });
+  ipcMain.handle("importPlan", async (_e, settlementId: string) => {
+    const s = store.settlements.get(settlementId);
+    if (!s) throw new Error("That settlement is gone.");
+    const r = await dialog.showOpenDialog({
+      title: `A plan from ${s.name}`,
+      defaultPath: s.cwd,
+      properties: ["openFile"],
+      filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
+    });
+    const path = r.canceled ? null : r.filePaths[0];
+    if (!path) return null;
+    rookery.importPlan(path, s);
+    pushRookery();
+    return rookery.rookery;
+  });
   ipcMain.handle("boardOp", async (_e, op: BoardOp) => {
     await board.apply(op, (id) => store.settlements.get(id));
     pushBoard();

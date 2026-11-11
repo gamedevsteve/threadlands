@@ -267,6 +267,11 @@ export type Api = {
   /** Apply a change; resolves with the board, or rejects with a reason to show. */
   boardOp(op: BoardOp): Promise<Board>;
   onBoard(cb: (b: Board) => void): void;
+  getRookery(): Promise<Rookery>;
+  rookeryOp(op: RookeryOp): Promise<Rookery>;
+  /** Pick a markdown file in a settlement's folder and post it as a plan from that settlement. */
+  importPlan(settlementId: string): Promise<Rookery | null>;
+  onRookery(cb: (r: Rookery) => void): void;
   /** Talk to the warden. Spawns or resumes it, like a governor. */
   wardenSend(text: string): Promise<void>;
   wardenAnswerFlag(answer: boolean | string): Promise<void>;
@@ -355,3 +360,58 @@ export type BoardOp =
    */
   | { op: "reportFixed"; id: string; settlementId: string; note: string }
   | { op: "deleteBounty"; id: string };
+
+// ── the rookery ───────────────────────────────────────────────────────────────
+
+/** Who wrote a post: a settlement, you, or someone outside the realm you are quoting. */
+export type LetterAuthor =
+  | { kind: "settlement"; id: string; name: string }
+  | { kind: "you" }
+  | { kind: "outside"; name: string };
+
+/**
+ * Where a post stands. A settlement's post waits for you; you keep it, bin it,
+ * or forward it. Your own posts, and ones you quote from outside, are kept.
+ */
+export type PostStatus = "waiting" | "kept" | "forwarded" | "binned";
+
+export type LetterPost = {
+  id: string;
+  at: number;
+  author: LetterAuthor;
+  body: string;
+  status: PostStatus;
+  /** Set when forwarded: to whom, and the note you added. */
+  forwardedTo: string | null;
+  forwardedAt: number | null;
+  note: string | null;
+};
+
+export type LetterKind = "finding" | "plan";
+
+/** A thread at the rookery: the letter is its first post, replies follow. */
+export type Letter = {
+  id: string;
+  /** L-7. Never reused. */
+  number: number;
+  kind: LetterKind;
+  title: string;
+  /** For a finding, the settlement it is meant for. A plan is for you. */
+  to: string | null;
+  posts: LetterPost[];
+  createdAt: number;
+  /** A rewrite for people who are not technical, once you have asked for one. */
+  plain: { body: string; at: number } | null;
+};
+
+export type Rookery = { letters: Letter[]; nextNumber: number };
+
+export const letterRef = (l: { number: number }): string => `L-${l.number}`;
+
+/** What you can do at the rookery by hand. */
+export type RookeryOp =
+  | { op: "post"; letterId: string; author: { kind: "you" } | { kind: "outside"; name: string }; body: string }
+  | { op: "forward"; letterId: string; postId: string; to: string; note: string }
+  | { op: "setStatus"; letterId: string; postId: string; status: "kept" | "binned" | "waiting" }
+  | { op: "rename"; letterId: string; title: string }
+  | { op: "deleteLetter"; letterId: string };
