@@ -534,6 +534,75 @@ have it group and label, never collapse the finding itself.
 
 ---
 
+### The rookery
+
+Decided 2026-11-10, not built. Where messengers fly from: the post office this
+plan used to describe, standing at q 2, r -4. It refines *Messengers* above
+in four ways: letters come in two kinds, replies form threads, plans leave the
+realm for real people, and forwarding wakes the recipient.
+
+**Letters**, each with an id like `L-7`, never reused. Two kinds:
+
+- **A finding**, from one settlement to another: what is wrong in the other's
+  code and how it knows. Evidence, not a fix, as above.
+- **A plan**, from a settlement (or added by you from any markdown file in a
+  settlement's folder) to the rookery itself, for you to read, keep and send
+  to people outside the realm.
+
+**You are the inspector.** Nothing a settlement sends goes anywhere but the
+rookery. Every letter waits there until you read it; you can annotate it, then
+forward it or bin it. The sender is not held up waiting.
+
+**Forwarding wakes the recipient.** The letter is delivered as a message and
+that governor starts on it. This is the one place a click of yours starts work,
+and it is always your click. If the recipient has questions, it raises a flag
+on its own tile, with the question on it, and you answer in its chat.
+
+**Replies make a thread, like email.** The only way one agent ever answers
+another is `reply_to_letter`: the reply joins the letter's thread at the
+rookery and waits for you like any letter, and you forward it on or not.
+Nothing passes between settlements without going through you, and the whole
+back-and-forth is kept in one place.
+
+You can post into a thread too, including **on behalf of someone outside the
+realm**: paste what your lead dev (or his Claude) said, attributed to him. So
+the case of a plan reviewed by a backend dev, his pushback, and the plan's author
+answering or conceding becomes one thread with every turn in it, instead of
+being lost between chat windows.
+
+**Sharing, for plans and whole threads:**
+
+- **Markdown** download, for developers.
+- **PDF**: typeset cleanly (title, date, which settlement it came from, the
+  thread's turns in order), readable by anyone. Made by Electron's own
+  `printToPDF`, so it needs no new dependency.
+- **Plain-language PDF**: a rewrite for people who are not technical. Same
+  typesetting. Written in plain, direct sentences, with no jargon and none of
+  the tics that make text read as machine-written. It is made by a one-off
+  Claude call with no tools, given only the plan, so it never needs to wake
+  the settlement. You review it before it goes anywhere, and it is kept with
+  the letter.
+- **The macOS share sheet** (Electron's `ShareMenu`) on any of the three files:
+  AirDrop, Mail, Messages, Slack, whatever the Mac offers.
+
+**Governor tools**, added to every settlement next to the board's:
+`send_finding(to, finding, evidence)`, `send_plan(title, markdown)`,
+`reply_to_letter(letter, body)`, and `read_letter(letter)` for the letters it
+sent, received or is replying to. No other channel between settlements exists.
+
+**Storage**: `rookery.json` beside `board.json`, written atomically, apart from
+the realm for the same reason as the board.
+
+**Build order.** The first two are panel, file and IPC work, safe in the app.
+The third changes how every session starts, so it is built from a terminal.
+
+1. The rookery panel and store: letters and threads, adding a plan from a
+   file, your own posts (as you, or as someone outside), annotate, bin, and
+   forward, which delivers through the existing send.
+2. Sharing: markdown, PDF, plain-language PDF, and the share sheet.
+3. Governor tools: send a finding, send a plan, reply to a letter, read a
+   letter, and questions as a flag.
+
 ### The panel's layers
 
 Decided 2026-11-09. The side panel is a stack of layers, not a set of pages.
