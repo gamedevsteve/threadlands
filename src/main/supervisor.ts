@@ -352,6 +352,44 @@ export type GovernorExtras = {
 };
 
 /**
+ * Everything a settlement is given, from more than one place at once: the
+ * board's tools and the rookery's.
+ *
+ * Servers and allowed tools are gathered rather than overwritten, so neither
+ * set can lose the other. Each `summarise` renames only its own tools and falls
+ * back to the Keep's words for the rest, so the one that differs from the
+ * default is the one that recognised the call.
+ */
+export function mergeExtras(...all: GovernorExtras[]): GovernorExtras {
+  const servers = Object.assign({}, ...all.map((e) => e.options?.mcpServers ?? {}));
+  const allowed = all.flatMap((e) => e.options?.allowedTools ?? []);
+  const options = Object.assign({}, ...all.map((e) => e.options ?? {}), {
+    mcpServers: servers,
+    allowedTools: [...new Set(allowed)],
+  });
+  const describers = all.map((e) => e.summarise).filter((f): f is NonNullable<typeof f> => !!f);
+  const choosers = all.map((e) => e.choicesFor).filter((f): f is NonNullable<typeof f> => !!f);
+  return {
+    options,
+    summarise: (toolName, input) => {
+      const base = summarise(toolName, input);
+      for (const f of describers) {
+        const line = f(toolName, input);
+        if (line !== base) return line;
+      }
+      return base;
+    },
+    choicesFor: (toolName, input) => {
+      for (const f of choosers) {
+        const choices = f(toolName, input);
+        if (choices?.length) return choices;
+      }
+      return undefined;
+    },
+  };
+}
+
+/**
  * One live session. Spawns lazily, resumes when it has a sessionId.
  *
  * Generic over what it is driving so the caller gets its own record back from

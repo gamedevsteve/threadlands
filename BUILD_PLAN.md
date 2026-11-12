@@ -585,10 +585,15 @@ being lost between chat windows.
 - **The macOS share sheet** (Electron's `ShareMenu`) on any of the three files:
   AirDrop, Mail, Messages, Slack, whatever the Mac offers.
 
-**Governor tools**, added to every settlement next to the board's:
-`send_finding(to, finding, evidence)`, `send_plan(title, markdown)`,
-`reply_to_letter(letter, body)`, and `read_letter(letter)` for the letters it
-sent, received or is replying to. No other channel between settlements exists.
+**Governor tools**, added to every settlement next to the board's, as built:
+`send_finding(title, body)`, `send_plan(title, body)` or `send_plan(path)` for a
+markdown file inside the settlement's own folder, `reply_to_letter(letter, body)`,
+and `read_letter(letter)` for the posts it wrote or was forwarded. No other
+channel between settlements exists. A finding names no recipient: who it goes to
+is decided when you forward it, which is the point of the gate. Each of the three
+that post takes `asks_question`, which raises a flag on the letter so you can see
+an answer is wanted — it asks nobody anything by itself, and the governor stops
+and waits for you in its own chat.
 
 **Storage**: `rookery.json` beside `board.json`, written atomically, apart from
 the realm for the same reason as the board.
@@ -601,7 +606,7 @@ The third changes how every session starts, so it is built from a terminal.
    forward, which delivers through the existing send. ✅
 2. Sharing: markdown, PDF, plain-language PDF, and the share sheet. ✅
 3. Governor tools: send a finding, send a plan, reply to a letter, read a
-   letter, and questions as a flag.
+   letter, and questions as a flag. ✅
 
 ### The panel's layers
 

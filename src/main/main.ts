@@ -12,9 +12,10 @@ import { BoardStore } from "./board.js";
 import { RookeryStore } from "./rookery.js";
 import { asHtml, asMarkdown, fileName, plainHtml, toPdf, writePlain } from "./share.js";
 import type { ShareFormat } from "./share.js";
-import { Supervisor } from "./supervisor.js";
+import { Supervisor, mergeExtras } from "./supervisor.js";
 import { Warden } from "./warden.js";
 import { GovernorBoard } from "./boardtools.js";
+import { GovernorRookery } from "./rookerytools.js";
 import { probeAccount } from "./usage.js";
 import { listModels } from "./models.js";
 import { artFor } from "../shared/types.js";
@@ -240,9 +241,13 @@ app.whenReady().then(() => {
   }
 
   store = new RealmStore();
-  // Before the Supervisor: every settlement is spawned with the board tools
-  // bound to it, so the board has to exist before any governor can.
+  // Before the Supervisor: every settlement is spawned with the board and
+  // rookery tools bound to it, so both have to exist before any governor can.
   board = new BoardStore(store.dir);
+  // The rookery. Letters wait here for you; forwarding is the only way one
+  // reaches a settlement, and it goes through the same send as the chat box.
+  rookery = new RookeryStore(store.dir);
+  const pushRookery = () => win?.webContents.send("rookery", rookery.rookery);
 
   /**
    * A governor's window onto the board. Read-only, apart from reporting a
@@ -256,6 +261,13 @@ app.whenReady().then(() => {
     (s, b, note) => warden.report(s, b, note),
   );
 
+  /**
+   * A governor's window onto the rookery: send a finding, send a plan, reply
+   * in a thread, read a letter it is part of. Every post waits for you, and
+   * only your forward ever delivers one.
+   */
+  const governorRookery = new GovernorRookery(rookery, () => pushRookery(), (id) => store.settlements.get(id));
+
   sup = new Supervisor(
     store.settlements,
     (s) => {
@@ -268,17 +280,14 @@ app.whenReady().then(() => {
     () => store.defaults.permissionMode,
     claudeExecutable(),
     (profileId) => sessionResetsAt.get(profileId) ?? null,
-    (s) => governorBoard.extrasFor(s),
+    // Both, merged: neither set of tools may be lost to the other.
+    (s) => mergeExtras(governorBoard.extrasFor(s), governorRookery.extrasFor(s)),
   );
 
   ipcMain.handle("getRealm", () => store.toRealm());
 
   ipcMain.handle("getBoard", () => board.board);
 
-  // The rookery. Letters wait here for you; forwarding is the only way one
-  // reaches a settlement, and it goes through the same send as the chat box.
-  rookery = new RookeryStore(store.dir);
-  const pushRookery = () => win?.webContents.send("rookery", rookery.rookery);
   ipcMain.handle("getRookery", () => rookery.rookery);
   ipcMain.handle("rookeryOp", async (_e, op: RookeryOp) => {
     await rookery.apply(op, (id) => store.settlements.get(id), (id, text) => sup.send(id, text));

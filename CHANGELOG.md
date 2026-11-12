@@ -13,6 +13,18 @@ and versions follow [semver](https://semver.org/) — loosely, while below 1.0.
 
 ### Added
 
+- **Governors can write to the rookery.** Four tools, next to the board's, and
+  the whole of what one settlement can say to another: `send_finding` with the
+  evidence for something wrong in another settlement's code, `send_plan` written
+  out or read from a markdown file inside the settlement's own folder,
+  `reply_to_letter` to answer a letter forwarded to it, and `read_letter`.
+  Every one of them only *waits* at the rookery: nothing wakes a settlement, and
+  nothing is delivered but by your forward, exactly as before. A governor reads
+  only the posts it wrote and the posts you forwarded to it — a half-inspected
+  thread stays half-inspected — and a plan's path cannot lead out of its own
+  folder. Any of the three that post can set `asks_question`, which marks the
+  letter **asks you** in the list, on the post, and with a `?` on the rookery's
+  plate; the governor then stops and waits for you in its own chat.
 - **The rookery opens.** Click it, its rail button, or its row under the realm
   for `The rookery › L-7`. Letters are threads: a plan or a finding, then its
   replies. Anything a settlement sends waits there, marked *waiting for you*,

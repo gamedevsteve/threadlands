@@ -39,21 +39,49 @@ export class RookeryStore {
     return this.rookery.letters.reduce((n, l) => n + l.posts.filter((p) => p.status === "waiting").length, 0);
   }
 
+  /** A letter by the id anyone says out loud: L-7, or 7, or its uuid. */
+  find(ref: string): Letter | undefined {
+    const t = ref.trim();
+    const n = Number(t.replace(/^l-?/i, ""));
+    return (
+      this.rookery.letters.find((l) => l.id === t) ??
+      (Number.isFinite(n) ? this.rookery.letters.find((l) => l.number === n) : undefined)
+    );
+  }
+
   /** Start a thread. A settlement's first post waits for you; yours does not. */
-  open(kind: LetterKind, title: string, body: string, author: LetterAuthor, to: string | null): Letter {
+  open(
+    kind: LetterKind,
+    title: string,
+    body: string,
+    author: LetterAuthor,
+    to: string | null,
+    asksQuestion = false,
+  ): Letter {
     const letter: Letter = {
       id: randomUUID(),
       number: this.rookery.nextNumber++,
       kind,
       title: title.trim().slice(0, 200) || "Untitled",
       to,
-      posts: [post(author, body)],
+      posts: [post(author, body, asksQuestion)],
       createdAt: Date.now(),
       plain: null,
     };
     this.rookery.letters.push(letter);
     this.save();
     return letter;
+  }
+
+  /**
+   * Add a post to a thread that already exists. Like the first post, a
+   * settlement's reply waits here: it reaches nobody until you forward it.
+   */
+  reply(letter: Letter, body: string, author: LetterAuthor, asksQuestion = false): LetterPost {
+    const p = post(author, body, asksQuestion);
+    letter.posts.push(p);
+    this.save();
+    return p;
   }
 
   /** A markdown file from a settlement's folder, posted as a plan from it. */
@@ -123,13 +151,15 @@ export class RookeryStore {
   }
 }
 
-function post(author: LetterAuthor, body: string): LetterPost {
+function post(author: LetterAuthor, body: string, asksQuestion = false): LetterPost {
   return {
     id: randomUUID(),
     at: Date.now(),
     author,
     body: body.slice(0, 200_000),
     status: author.kind === "settlement" ? "waiting" : "kept",
+    // Only a settlement asks: your own posts and the ones you quote are answers.
+    asksQuestion: author.kind === "settlement" && asksQuestion,
     forwardedTo: null,
     forwardedAt: null,
     note: null,
@@ -159,5 +189,9 @@ function delivery(letter: Letter, chosen: LetterPost, note: string): string {
     turns.join("\n\n---\n\n"),
     ``,
     `Work on what it asks here. If you have questions for the settler, ask them plainly and stop.`,
+    ``,
+    `To answer whoever wrote this, use reply_to_letter with ${letterRef(letter)}. Your reply waits at the ` +
+      `rookery for the settler, who decides whether it goes on; nothing you post reaches another settlement ` +
+      `by itself.`,
   ].join("\n");
 }

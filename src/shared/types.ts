@@ -387,6 +387,12 @@ export type LetterPost = {
   author: LetterAuthor;
   body: string;
   status: PostStatus;
+  /**
+   * The governor wants an answer to this one. A question is still only a post
+   * waiting at the rookery — it reaches nobody until you forward it — but the
+   * rookery says so plainly, so an answer that is wanted is not missed.
+   */
+  asksQuestion: boolean;
   /** Set when forwarded: to whom, and the note you added. */
   forwardedTo: string | null;
   forwardedAt: number | null;

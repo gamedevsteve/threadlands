@@ -1180,7 +1180,9 @@ function draw(): void {
     if (camera.zoom >= BANNER_ALL_BELOW || hovered) {
       const foot = spriteFoot("rookery", y, size);
       const w = lettersWaiting();
-      plates.push(() => nameplate(w ? `Rookery · ${w}` : "Rookery", x, foot, w ? "#ffb08a" : "#f0dcae", "#3a2a12"));
+      const q = questionsWaiting();
+      const label = w ? `Rookery · ${w}${q ? " ?" : ""}` : "Rookery";
+      plates.push(() => nameplate(label, x, foot, w ? "#ffb08a" : "#f0dcae", "#3a2a12"));
     }
   }
 
@@ -2495,9 +2497,25 @@ function lettersWaiting(l?: Letter): number {
   return (l ? [l] : rookery.letters).reduce((n, x) => n + x.posts.filter((p) => p.status === "waiting").length, 0);
 }
 
+/**
+ * Waiting posts where a governor asked you something.
+ *
+ * A question is still just a post at the rookery — it woke nobody and it
+ * answers itself to nobody — but an answer is wanted, so it is said out loud
+ * on the letter, in the list, and on the map.
+ */
+function questionsWaiting(l?: Letter): number {
+  return (l ? [l] : rookery.letters).reduce(
+    (n, x) => n + x.posts.filter((p) => p.asksQuestion && p.status === "waiting").length,
+    0,
+  );
+}
+
 function rookeryStatus(): string {
   const n = lettersWaiting();
-  return n ? `${n} waiting for you` : `${rookery.letters.length} letter${rookery.letters.length === 1 ? "" : "s"}`;
+  const q = questionsWaiting();
+  const asked = q ? `, ${q} asking a question` : "";
+  return n ? `${n} waiting for you${asked}` : `${rookery.letters.length} letter${rookery.letters.length === 1 ? "" : "s"}`;
 }
 
 function authorLabel(a: LetterAuthor): string {
@@ -2519,10 +2537,11 @@ function renderLetters(): string {
     .sort((a, b) => lettersWaiting(b) - lettersWaiting(a) || b.posts.at(-1)!.at - a.posts.at(-1)!.at)
     .map((l) => {
       const w = lettersWaiting(l);
+      const q = questionsWaiting(l);
       const from = authorLabel(l.posts[0]!.author);
       const to = l.to ? ` → ${settlementName(l.to) || "a razed settlement"}` : "";
-      return `<button class="ledgerrow letterrow${w ? " waiting" : ""}" data-letter="${esc(l.id)}">
-          <span class="lname"><span class="bid">${letterRef(l)}</span> ${esc(l.title)}</span>
+      return `<button class="ledgerrow letterrow${w ? " waiting" : ""}${q ? " asking" : ""}" data-letter="${esc(l.id)}">
+          <span class="lname"><span class="bid">${letterRef(l)}</span> ${esc(l.title)}${q ? ` <span class="chip asking">asks you</span>` : ""}</span>
           <span class="muted">${l.kind} · ${esc(from)}${esc(to)} · ${l.posts.length} post${l.posts.length === 1 ? "" : "s"}${w ? ` · <b>${w} waiting</b>` : ""}</span>
         </button>`;
     })
@@ -2532,7 +2551,7 @@ function renderLetters(): string {
     .map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`)
     .join("");
   return `<h2>Letters</h2>
-    <div class="ledgers">${rows || '<div class="muted">No letters yet. Settlements will send findings and plans here once they have the tools; until then, add a plan from a file.</div>'}</div>
+    <div class="ledgers">${rows || '<div class="muted">No letters yet. A settlement sends findings and plans here and they wait for you, or you can add a plan from a file yourself.</div>'}</div>
     <label>Add a plan from a settlement's folder</label>
     <select id="r-import"><option value="">Choose a settlement…</option>${sources}</select>
     <p class="muted hint">Pick a markdown file, and it becomes a plan from that settlement: a thread you can reply in, forward, and share.</p>`;
@@ -2548,6 +2567,9 @@ function renderThread(l: Letter | undefined): string {
       : p.status === "forwarded"
         ? `<span class="chip">forwarded to ${esc(settlementName(p.forwardedTo) || "a razed settlement")}${p.forwardedAt ? ` · ${esc(when(p.forwardedAt))}` : ""}</span>`
         : p.status === "binned" ? `<span class="chip">binned</span>` : "";
+    // The governor wants an answer. It is waiting in its own chat, not here:
+    // the rookery only says so, and forwarding is still yours.
+    const asked = p.asksQuestion ? `<span class="chip asking">asks you a question</span>` : "";
     // A finding is meant for someone: offer them first.
     const target = l.to ?? "";
     const opts = people.map((s) => `<option value="${esc(s.id)}" ${s.id === target ? "selected" : ""}>${esc(s.name)}</option>`).join("");
@@ -2564,8 +2586,9 @@ function renderThread(l: Letter | undefined): string {
             <button class="danger" data-bin="${esc(p.id)}">Bin</button>
           </div>
         </details>`;
-    return `<article class="post ${p.status} ${p.author.kind}">
-        <header><b>${esc(authorLabel(p.author))}</b> <span class="muted">${esc(when(p.at))}</span> ${chip}</header>
+    return `<article class="post ${p.status} ${p.author.kind}${p.asksQuestion ? " asking" : ""}">
+        <header><b>${esc(authorLabel(p.author))}</b> <span class="muted">${esc(when(p.at))}</span> ${chip}${asked}</header>
+        ${p.asksQuestion && p.status !== "binned" ? `<div class="muted hint">It is waiting on an answer. Reply in its own chat, or forward this to whoever can answer it.</div>` : ""}
         ${p.note ? `<div class="muted hint">Your note: ${esc(p.note)}</div>` : ""}
         <div class="md body">${p.status === "binned" ? '<p class="muted">(binned)</p>' : markdown(p.body, p.author.kind === "you" ? yourMarkdown : marked)}</div>
         ${actions}
